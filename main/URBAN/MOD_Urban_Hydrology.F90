@@ -15,7 +15,8 @@ CONTAINS
         ipatch         ,patchtype      ,lbr            ,lbi            ,&
         lbp            ,lbl            ,snll           ,deltim         ,&
         ! forcing
-        pg_rain        ,pgper_rain     ,pg_snow                        ,&
+        pg_rain        ,pgper_rain     ,pgimp_rain     ,pg_snow        ,&
+        pg_rain_lake   ,pg_snow_lake                                   ,&
         ! surface parameters or status
         froof          ,fgper          ,flake          ,bsw            ,&
         porsl          ,psi0           ,hksati         ,wtfact         ,&
@@ -36,11 +37,12 @@ CONTAINS
 #if(defined CaMa_Flood)
         flddepth       ,fldfrc         ,qinfl_fld                      ,&
 #endif
-#ifdef SNICAR
+! SNICAR model variables
         forc_aer       ,&
         mss_bcpho      ,mss_bcphi      ,mss_ocpho      ,mss_ocphi      ,&
         mss_dst1       ,mss_dst2       ,mss_dst3       ,mss_dst4       ,&
-#endif
+! END SNICAR model variables
+
         ! output
         rsur           ,rnof           ,qinfl          ,zwt            ,&
         wa             ,qcharge        ,smp            ,hk             ,&
@@ -76,8 +78,11 @@ CONTAINS
   REAL(r8), intent(in) :: &
         deltim           ,&! time step (s)
         pg_rain          ,&! rainfall after removal of interception (mm h2o/s)
-        pg_snow          ,&! rainfall after removal of interception (mm h2o/s)
+        pg_snow          ,&! snowfall after removal of interception (mm h2o/s)
         pgper_rain       ,&! rainfall after removal of interception (mm h2o/s)
+        pgimp_rain       ,&! rainfall after removal of interception (mm h2o/s)
+        pg_rain_lake     ,&! rainfall onto lake (mm h2o/s)
+        pg_snow_lake     ,&! snowfall onto lake (mm h2o/s)
         froof            ,&! roof fractional cover [-]
         fgper            ,&! weith of impervious ground [-]
         flake            ,&! lake fractional cover [-]
@@ -121,7 +126,7 @@ CONTAINS
   real(r8), INTENT(out)   :: qinfl_fld ! grid averaged inundation water input from top (mm/s)
 #endif
 
-#ifdef SNICAR
+! SNICAR model variables
 ! Aerosol Fluxes (Jan. 07, 2023)
   real(r8), intent(in) :: forc_aer ( 14 )  ! aerosol deposition from atmosphere model (grd,aer) [kg m-1 s-1]
 
@@ -135,7 +140,7 @@ CONTAINS
         mss_dst3  (lbp:0), &! mass of dust species 3 in snow  (col,lyr) [kg]
         mss_dst4  (lbp:0)   ! mass of dust species 4 in snow  (col,lyr) [kg]
 ! Aerosol Fluxes (Jan. 07, 2023)
-#endif
+! END SNICAR model variables
 
   INTEGER, intent(in) :: &
         imelt_lake(maxsnl+1:nl_soil)! lake flag for melting or freezing snow and soil layer [-]
@@ -221,11 +226,11 @@ CONTAINS
 #if(defined CaMa_Flood)
             ,flddepth    ,fldfrc      ,qinfl_fld                 &
 #endif
-#ifdef SNICAR
+! SNICAR model variables
              ,forc_aer   ,&
              mss_bcpho   ,mss_bcphi   ,mss_ocpho   ,mss_ocphi   ,&
              mss_dst1    ,mss_dst2    ,mss_dst3    ,mss_dst4     &
-#endif
+! END SNICAR model variables
             )
 
 !=======================================================================
@@ -264,10 +269,10 @@ CONTAINS
       ! ================================================
 
       IF (lbi >= 1) THEN
-         gwat = pg_rain + sm_gimp - qseva_gimp
+         gwat = pgimp_rain + sm_gimp - qseva_gimp
       ELSE
          CALL snowwater (lbi,deltim,ssi,wimp,&
-                         pg_rain,qseva_gimp,qsdew_gimp,qsubl_gimp,qfros_gimp,&
+                         pgimp_rain,qseva_gimp,qsdew_gimp,qsubl_gimp,qfros_gimp,&
                          dz_gimpsno(lbi:0),wice_gimpsno(lbi:0),wliq_gimpsno(lbi:0),gwat)
       ENDIF
 
@@ -293,15 +298,15 @@ CONTAINS
       rnof_gimp = rsur_gimp
 
 !=======================================================================
-! [3] 湖泊水文过程
+! [3] lake hydrology
 !=======================================================================
 
       CALL snowwater_lake ( &
            ! "in" snowater_lake arguments
            ! ---------------------------
            maxsnl       ,nl_soil      ,nl_lake         ,deltim          ,&
-           ssi          ,wimp         ,porsl           ,pg_rain         ,&
-           pg_snow      ,dz_lake      ,imelt_lake(:0)  ,fioldl(:0)      ,&
+           ssi          ,wimp         ,porsl           ,pg_rain_lake    ,&
+           pg_snow_lake ,dz_lake      ,imelt_lake(:0)  ,fioldl(:0)      ,&
            qseva_lake   ,qsubl_lake   ,qsdew_lake      ,qfros_lake      ,&
 
            ! "inout" snowater_lake arguments
@@ -310,20 +315,19 @@ CONTAINS
            wice_lakesno ,wliq_lakesno ,t_lake          ,lake_icefrac    ,&
            dfseng       ,dfgrnd       ,snll            ,scv_lake        ,&
            snowdp_lake  ,sm_lake                                         &
-#ifdef SNICAR
-           ! SNICAR
+! SNICAR model variables
            ,forc_aer    ,&
            mss_bcpho    ,mss_bcphi    ,mss_ocpho       ,mss_ocphi       ,&
-           mss_dst1     , mss_dst2    ,mss_dst3        ,mss_dst4         &
-#endif
-           )
+           mss_dst1     , mss_dst2    ,mss_dst3        ,mss_dst4        ,&
+! END SNICAR model variables
+           urban_call=.true.)
 
       ! We assume the land water bodies have zero extra liquid water capacity
       ! (i.e.,constant capacity), all excess liquid water are put into the runoff,
       ! this unreasonable assumption should be updated in the future version
       a  = (sum(wliq_lakesno(snll+1:))-w_old)/deltim
       aa = qseva_lake-(qsubl_lake-qsdew_lake)
-      rsur_lake = max(0., pg_rain - aa - a)
+      rsur_lake = max(0., pg_rain_lake - aa - a)
       rnof_lake = rsur_lake
 
       ! Set zero to the empty node

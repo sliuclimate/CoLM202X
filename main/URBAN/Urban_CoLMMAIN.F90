@@ -15,7 +15,7 @@ SUBROUTINE UrbanCoLMMAIN ( &
            lakedepth    ,dz_lake                                  ,&
 
          ! LUCY model input parameters
-           fix_holiday  ,week_holiday ,hum_prof     ,popcell      ,&
+           fix_holiday  ,week_holiday ,hum_prof     ,pop_den      ,&
            vehicle      ,weh_prof     ,wdh_prof     ,&
 
          ! soil ground and wall information
@@ -28,9 +28,7 @@ SUBROUTINE UrbanCoLMMAIN ( &
 #endif
            hksati       ,csol         ,k_solids     ,dksatu       ,&
            dksatf       ,dkdry        ,&
-#ifdef THERMAL_CONDUCTIVITY_SCHEME_4
            BA_alpha     ,BA_beta      ,&
-#endif
            alb_roof     ,alb_wall     ,alb_gimp     ,alb_gper     ,&
 
          ! vegetation information
@@ -167,7 +165,7 @@ SUBROUTINE UrbanCoLMMAIN ( &
         hum_prof(24)    , &! Diurnal metabolic heat profile
         weh_prof(24)    , &! Diurnal traffic flow profile of weekend
         wdh_prof(24)    , &! Diurnal traffic flow profile of weekday
-        popcell         , &! population density
+        pop_den         , &! population density
         vehicle(3)         ! vehicle numbers per thousand people
 
   REAL(r8), intent(in) :: &
@@ -216,10 +214,8 @@ SUBROUTINE UrbanCoLMMAIN ( &
         dksatf    (nl_soil),&! thermal conductivity of saturated frozen soil [W/m-K]
         dkdry     (nl_soil),&! thermal conductivity for dry soil  [J/(K s m)]
 
-#ifdef THERMAL_CONDUCTIVITY_SCHEME_4
         BA_alpha  (nl_soil),&! alpha in Balland and Arp(2005) thermal conductivity scheme
         BA_beta   (nl_soil),&! beta in Balland and Arp(2005) thermal conductivity scheme
-#endif
         alb_roof(2,2)      ,&! albedo of roof [-]
         alb_wall(2,2)      ,&! albedo of walls [-]
         alb_gimp(2,2)      ,&! albedo of impervious [-]
@@ -588,8 +584,13 @@ SUBROUTINE UrbanCoLMMAIN ( &
         pg_snow    ,&! snowfall onto ground including canopy runoff [kg/(m2 s)]
         pgper_rain ,&! rainfall onto ground including canopy runoff [kg/(m2 s)]
         pgper_snow ,&! snowfall onto ground including canopy runoff [kg/(m2 s)]
+        pgimp_rain ,&! rainfall onto ground including canopy runoff [kg/(m2 s)]
+        pgimp_snow ,&! snowfall onto ground including canopy runoff [kg/(m2 s)]
+        pg_rain_lake,&!rainfall onto lake [kg/(m2 s)]
+        pg_snow_lake,&!snowfall onto lake [kg/(m2 s)]
         etrgper    ,&! etr for pervious ground
-        fracveg      ! fraction of fveg/fgper
+        fveg_gper  ,&! fraction of fveg/fgper
+        fveg_gimp    ! fraction of fveg/fgimp
 
    REAL(r8) :: &
         errw_rsub    ! the possible subsurface runoff deficit after PHS is included
@@ -783,7 +784,7 @@ SUBROUTINE UrbanCoLMMAIN ( &
       ! with vegetation canopy
       CALL LEAF_interception_CoLM2014 (deltim,dewmx,forc_us,forc_vs,chil,sigf,lai,sai,tref,tleaf,&
                               prc_rain,prc_snow,prl_rain,prl_snow,&
-                              ldew,ldew,ldew,z0m,forc_hgt_u,pg_rain,pg_snow,qintr,qintr,qintr)
+                              ldew,ldew,ldew,z0m,forc_hgt_u,pgper_rain,pgper_snow,qintr,qintr,qintr)
 
       ! for output, patch scale
       qintr = qintr * fveg * (1-flake)
@@ -794,12 +795,31 @@ SUBROUTINE UrbanCoLMMAIN ( &
       ! without vegetation canopy
       pg_rain = prc_rain + prl_rain
       pg_snow = prc_snow + prl_snow
+      pg_rain_lake = prc_rain + prl_rain
+      pg_snow_lake = prc_snow + prl_snow
 
       ! for urban hydrology input, only for pervious ground
-      fracveg = fveg/((1-froof)*fgper)
-      fracveg = min(fracveg, 1.)
-      pgper_rain = pgper_rain*fracveg + pg_rain*(1-fracveg)
-      pgper_snow = pgper_snow*fracveg + pg_snow*(1-fracveg)
+      IF (fgper > 0) THEN
+         fveg_gper = fveg/((1-froof)*fgper)
+      ELSE
+         fveg_gper = 0.
+      ENDIF
+
+      IF (fgper < 1) THEN
+         fveg_gimp = (fveg-(1-froof)*fgper)/((1-froof)*(1-fgper))
+      ELSE
+         fveg_gimp = 0.
+      ENDIF
+
+      IF (fveg_gper .le. 1) THEN
+         pgper_rain = pgper_rain*fveg_gper + pg_rain*(1-fveg_gper)
+         pgper_snow = pgper_snow*fveg_gper + pg_snow*(1-fveg_gper)
+         pgimp_rain = pg_rain
+         pgimp_snow = pg_snow
+      ELSE
+         pgimp_rain = pgper_rain*fveg_gimp + pg_rain*(1-fveg_gimp)
+         pgimp_snow = pgper_snow*fveg_gimp + pg_snow*(1-fveg_gimp)
+      ENDIF
 
 !----------------------------------------------------------------------
 ! [3] Initilize new snow nodes for snowfall / sleet
@@ -817,7 +837,7 @@ SUBROUTINE UrbanCoLMMAIN ( &
                     wliq_roofsno(:0),wice_roofsno(:0),fioldr(:0),&
                     snlr,sag_roof,scv_roof,snowdp_roof,fsno_roof)
 
-      CALL newsnow (patchtype,maxsnl,deltim,tgimp,pg_rain,pg_snow,bifall,&
+      CALL newsnow (patchtype,maxsnl,deltim,tgimp,pgimp_rain,pgimp_snow,bifall,&
                     t_precip,zi_gimpsno(:0),z_gimpsno(:0),dz_gimpsno(:0),t_gimpsno(:0),&
                     wliq_gimpsno(:0),wice_gimpsno(:0),fioldi(:0),&
                     snli,sag_gimp,scv_gimp,snowdp_gimp,fsno_gimp)
@@ -831,7 +851,7 @@ SUBROUTINE UrbanCoLMMAIN ( &
            ! "in" arguments
            ! ---------------
            maxsnl        ,nl_lake       ,deltim          ,dz_lake         ,&
-           pg_rain       ,pg_snow       ,t_precip        ,bifall          ,&
+           pg_rain_lake  ,pg_snow_lake  ,t_precip        ,bifall          ,&
 
            ! "inout" arguments
            ! ------------------
@@ -865,7 +885,7 @@ SUBROUTINE UrbanCoLMMAIN ( &
          par                  ,Fhac                 ,Fwst                 ,Fach                 ,&
          Fahe                 ,Fhah                 ,vehc                 ,meta                 ,&
          ! LUCY INPUT PARAMETERS
-         fix_holiday          ,week_holiday         ,hum_prof             ,popcell              ,&
+         fix_holiday          ,week_holiday         ,hum_prof             ,pop_den              ,&
          vehicle              ,weh_prof             ,wdh_prof             ,idate                ,&
          patchlonr                                                                              ,&
          ! GROUND PARAMETERS
@@ -883,9 +903,7 @@ SUBROUTINE UrbanCoLMMAIN ( &
          sc_vgm               ,fc_vgm               ,&
 #endif
          k_solids             ,dksatu               ,dksatf               ,dkdry                ,&
-#ifdef THERMAL_CONDUCTIVITY_SCHEME_4
          BA_alpha             ,BA_beta              ,&
-#endif
          cv_roof              ,cv_wall              ,cv_gimp              ,&
          tk_roof              ,tk_wall              ,tk_gimp              ,dz_roofsno(lbr:)     ,&
          dz_gimpsno(lbi:)     ,dz_gpersno(lbp:)     ,dz_lakesno(:)        ,dz_wall(:)           ,&
@@ -911,9 +929,10 @@ SUBROUTINE UrbanCoLMMAIN ( &
          ldew                 ,t_room               ,troof_inner          ,twsun_inner          ,&
          twsha_inner          ,t_roommax            ,t_roommin            ,tafu                 ,&
 
-#ifdef SNICAR
+! SNICAR model variables
          snofrz(lbsn:0)       ,sabg_lyr(lbp:1)                                                  ,&
-#endif
+! END SNICAR model variables
+
          ! output
          taux                 ,tauy                 ,fsena                ,fevpa                ,&
          lfevpa               ,fsenl                ,fevpl                ,etr                  ,&
@@ -934,14 +953,6 @@ SUBROUTINE UrbanCoLMMAIN ( &
          tstar                ,fm                   ,fh                   ,fq                   ,&
          hpbl                                                                                    )
 
-
-! 计算代谢热和交通热
-!#ifdef USE_LUCY
-!     f_fac  = 0.8
-!     car_sp = 54
-!     CALL LUCY(idate,deltim,fix_holiday,week_holiday,f_fac,car_sp,hum_prof, &
-!              wdh_prof,weh_prof,popcell,vehicle,Fahe) !vehc_tot,ahf_flx,vehc_flx)
-!#endif
 !----------------------------------------------------------------------
 ! [4] Urban hydrology
 !----------------------------------------------------------------------
@@ -957,8 +968,8 @@ SUBROUTINE UrbanCoLMMAIN ( &
         ipatch               ,patchtype            ,lbr                  ,lbi                  ,&
         lbp                  ,lbl                  ,snll                 ,deltim               ,&
         ! forcing
-        pg_rain              ,pgper_rain           ,pg_snow                                    ,&
-        ! surface parameters and status
+        pg_rain              ,pgper_rain           ,pgimp_rain           ,pg_snow              ,&
+        pg_rain_lake         ,pg_snow_lake                                                     ,&
         froof                ,fgper                ,flake                ,bsw                  ,&
         porsl                ,psi0                 ,hksati               ,wtfact               ,&
         pondmx               ,ssi                  ,wimp                 ,smpmin               ,&
@@ -979,11 +990,12 @@ SUBROUTINE UrbanCoLMMAIN ( &
         flddepth             ,fldfrc               ,qinfl_fld                                  ,&
 #endif
 
-#ifdef SNICAR
+! SNICAR model variables
         forc_aer             ,&
         mss_bcpho(lbsn:0)    ,mss_bcphi(lbsn:0)    ,mss_ocpho(lbsn:0)    ,mss_ocphi(lbsn:0)    ,&
         mss_dst1(lbsn:0)     ,mss_dst2(lbsn:0)     ,mss_dst3(lbsn:0)     ,mss_dst4(lbsn:0)     ,&
-#endif
+! END SNICAR model variables
+
         ! output
         rsur                 ,rnof                 ,qinfl                ,zwt                  ,&
         wa                   ,qcharge              ,smp                  ,hk                   ,&
@@ -1100,10 +1112,10 @@ SUBROUTINE UrbanCoLMMAIN ( &
       lbp = snlp + 1
       tgper = t_gpersno(lbp)
 
-      !TODO: 暂定方案，设置t_soisno
+      !TODO: temporal, set to t_soisno
       t_soisno(:) = t_gpersno(:)
 
-      !TODO: 如何计算tlake
+      !TODO: how to set tlake
       lbl = snll + 1
       IF (lbl < 1) THEN
          tlake = t_lakesno(lbl)
@@ -1115,7 +1127,7 @@ SUBROUTINE UrbanCoLMMAIN ( &
       ! energy balance check
       ! ----------------------------------------
       zerr=errore
-#if(defined CLMDEBUG)
+#if(defined CoLMDEBUG)
       IF(abs(errore)>.5)THEN
          write(6,*) 'Warning: energy balance violation ',errore,patchclass
       ENDIF
@@ -1145,7 +1157,7 @@ SUBROUTINE UrbanCoLMMAIN ( &
       errorw = (endwb-totwb) - (forc_prc+forc_prl-fevpa-rnof-errw_rsub)*deltim
       xerr   = errorw/deltim
 
-#if(defined CLMDEBUG)
+#if(defined CoLMDEBUG)
       IF(abs(errorw)>1.e-3) THEN
          write(6,*) 'Warning: water balance violation', errorw, ipatch, patchclass
          !stop

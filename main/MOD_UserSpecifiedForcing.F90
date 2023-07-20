@@ -95,9 +95,14 @@ CONTAINS
          NVAR=NVAR+1
       endif
 
+      IF (allocated(dtime )) deallocate(dtime)
+      IF (allocated(offset)) deallocate(offset)
       allocate (dtime  (NVAR))
       allocate (offset (NVAR))
 
+      IF (allocated(fprefix )) deallocate(fprefix )
+      IF (allocated(vname   )) deallocate(vname   )
+      IF (allocated(tintalgo)) deallocate(tintalgo)
       allocate (fprefix  (NVAR))
       allocate (vname    (NVAR))
       allocate (tintalgo (NVAR))
@@ -136,7 +141,7 @@ CONTAINS
          dtime(NVAR)    = DEF_forcing%CBL_dtime
          offset(NVAR)   = DEF_forcing%CBL_offset
       endif
-   end subroutine init_user_specified_forcing 
+   end subroutine init_user_specified_forcing
 
    ! ----------------
    FUNCTION metfilename(year, month, day, var_i)
@@ -326,9 +331,9 @@ CONTAINS
          case (4)
             metfilename = trim(metfilename) //'_mean_total_precipitation_rate.nc4'
          case (5)
-            metfilename = trim(metfilename) //'_10m_u_component_of_wind.nc4'
+            metfilename = trim(metfilename) //'_100m_u_component_of_wind.nc4'
          case (6)
-            metfilename = trim(metfilename) //'_10m_v_component_of_wind.nc4'
+            metfilename = trim(metfilename) //'_100m_v_component_of_wind.nc4'
          case (7)
             metfilename = trim(metfilename) //'_mean_surface_downward_short_wave_radiation_flux.nc4'
          case (8)
@@ -557,7 +562,7 @@ CONTAINS
       case ('POINT')
          metfilename = '/'//trim(fprefix(1))
       end select
-   if (DEF_USE_CBL_HEIGHT) then 
+   if (DEF_USE_CBL_HEIGHT) then
       select case (var_i)
       case (9)
          metfilename = '/'//trim(fprefix(9))//'_'//trim(yearstr)//'_'//trim(monthstr)//'_boundary_layer_height.nc4'
@@ -667,8 +672,10 @@ CONTAINS
                      if (forcn(4)%blk(ib,jb)%val(i,j) < 0.0)   forcn(4)%blk(ib,jb)%val(i,j) = 0.0
                      if (forcn(7)%blk(ib,jb)%val(i,j) < 0.0)   forcn(7)%blk(ib,jb)%val(i,j) = 0.0
                      ! 12th grade of Typhoon 32.7-36.9 m/s
-                     if (abs(forcn(5)%blk(ib,jb)%val(i,j)) > 40.0) forcn(5)%blk(ib,jb)%val(i,j) = &
-                        40.0*forcn(5)%blk(ib,jb)%val(i,j)/abs(forcn(5)%blk(ib,jb)%val(i,j))
+                     ! NOTE by Wenzong: This is a problem when running a GNU-compiled program, because there is
+                     ! no data of forcn(5), temporarily comment the code below
+                     ! if (abs(forcn(5)%blk(ib,jb)%val(i,j)) > 40.0) forcn(5)%blk(ib,jb)%val(i,j) = &
+                     !    40.0*forcn(5)%blk(ib,jb)%val(i,j)/abs(forcn(5)%blk(ib,jb)%val(i,j))
                      if (abs(forcn(6)%blk(ib,jb)%val(i,j)) > 40.0) forcn(6)%blk(ib,jb)%val(i,j) = &
                         40.0*forcn(6)%blk(ib,jb)%val(i,j)/abs(forcn(6)%blk(ib,jb)%val(i,j))
                      call qsadv (forcn(1)%blk(ib,jb)%val(i,j), forcn(3)%blk(ib,jb)%val(i,j), &

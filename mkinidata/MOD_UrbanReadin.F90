@@ -19,7 +19,6 @@ MODULE MOD_UrbanReadin
 
 !-----------------------------------------------------------------------
 
-
    SUBROUTINE Urban_readin (dir_landdata, lc_year)!(dir_srfdata,dir_atmdata,nam_urbdata,nam_atmdata,lc_year)
 
 ! ===========================================================
@@ -33,7 +32,7 @@ MODULE MOD_UrbanReadin
       USE MOD_Const_LC
       USE MOD_Vars_TimeVariables
       USE MOD_Vars_TimeInvariants
-      USE MOD_Urban_Vars_TimeInvars
+      USE MOD_Urban_Vars_TimeInvariants
       USE MOD_NetCDFVector
       USE MOD_NetCDFSerial
       USE MOD_LandPatch
@@ -47,6 +46,7 @@ MODULE MOD_UrbanReadin
       INTEGER, intent(in) :: lc_year    ! which year of land cover data used
       CHARACTER(LEN=256), intent(in) :: dir_landdata
 
+      CHARACTER(LEN=256) :: dir_rawdata
       CHARACTER(LEN=256) :: lndname
       CHARACTER(len=256) :: cyear
 
@@ -126,38 +126,37 @@ MODULE MOD_UrbanReadin
 #endif
 
       !TODO: Variables distinguish between time-varying and time-invariant variables
-      !TODO: 2005 -> lc_year
       ! write(cyear,'(i4.4)') lc_year
-      lndname = trim(dir_landdata)//'/urban/2005/POP.nc'
+      lndname = trim(dir_landdata)//'/urban/'//trim(cyear)//'/POP.nc'
       print*, lndname
-      CALL ncio_read_vector (lndname, 'POP_DEN'     , landurban, pop_den     )
+      CALL ncio_read_vector (lndname, 'POP_DEN'       , landurban, pop_den )
       ! write(cyear,'(i4.4)') lc_year
-      lndname = trim(dir_landdata)//'/urban/2005/LUCY_country_id.nc'
+      lndname = trim(dir_landdata)//'/urban/'//trim(cyear)//'/LUCY_country_id.nc'
       print*, lndname
-      CALL ncio_read_vector (lndname, 'LUCY_id'     , landurban, lucyid  )
+      CALL ncio_read_vector (lndname, 'LUCY_id'       , landurban, lucyid  )
       ! write(cyear,'(i4.4)') lc_year
-      lndname = trim(dir_landdata)//'/urban/2005/WT_ROOF.nc'
+      lndname = trim(dir_landdata)//'/urban/'//trim(cyear)//'/WT_ROOF.nc'
       print*, lndname
-      CALL ncio_read_vector (lndname, 'WT_ROOF', landurban, froof)
+      CALL ncio_read_vector (lndname, 'WT_ROOF'       , landurban, froof   )
       ! write(cyear,'(i4.4)') lc_year
-      lndname = trim(dir_landdata)//'/urban/2005/HT_ROOF.nc'
+      lndname = trim(dir_landdata)//'/urban/'//trim(cyear)//'/HT_ROOF.nc'
       print*, lndname
-      CALL ncio_read_vector (lndname, 'HT_ROOF'     , landurban, hroof  )
+      CALL ncio_read_vector (lndname, 'HT_ROOF'       , landurban, hroof   )
 
-      lndname = trim(dir_landdata)//'/urban/2005/PCT_Water.nc'
+      lndname = trim(dir_landdata)//'/urban/'//trim(cyear)//'/PCT_Water.nc'
       print*, lndname
-      CALL ncio_read_vector (lndname, 'PCT_Water'     , landurban, flake)
+      CALL ncio_read_vector (lndname, 'PCT_Water'     , landurban, flake   )
 
-      lndname = trim(dir_landdata)//'/urban/2005/PCT_Tree.nc'
+      lndname = trim(dir_landdata)//'/urban/'//trim(cyear)//'/PCT_Tree.nc'
       print*, lndname
       CALL ncio_read_vector (lndname, 'PCT_Tree'      , landurban, fveg_urb)
 
-      lndname = trim(dir_landdata)//'/urban/2005/htop_urb.nc'
+      lndname = trim(dir_landdata)//'/urban/'//trim(cyear)//'/htop_urb.nc'
       print*, lndname
       CALL ncio_read_vector (lndname, 'URBAN_TREE_TOP', landurban, htop_urb)
 
-      !TODO-yuan: change to a defined patch/file
-      lndname = trim("/stu01/dongwz/data/CLMrawdata/urban/LUCY_rawdata.nc")
+      dir_rawdata = DEF_dir_rawdata
+      lndname = trim(dir_rawdata)//'/urban/'//'/LUCY_rawdata.nc'
       print*, lndname
       CALL ncio_read_bcast_serial (lndname,  "vehicle"    , lvehicle     )
       CALL ncio_read_bcast_serial (lndname,  "weekendday" , lweek_holiday)
@@ -173,18 +172,37 @@ MODULE MOD_UrbanReadin
             i       = urban2patch (u)
             lucy_id = lucyid      (u)
 
-            IF (lucy_id > 0) THEN
-               vehicle      (:,u) = lvehicle      (lucy_id,:)
-               week_holiday (:,u) = lweek_holiday (lucy_id,:)
-               weh_prof     (:,u) = lweh_prof     (lucy_id,:)
-               wdh_prof     (:,u) = lwdh_prof     (lucy_id,:)
-               hum_prof     (:,u) = lhum_prof     (lucy_id,:)
-               fix_holiday  (:,u) = lfix_holiday  (lucy_id,:)
+            IF (DEF_URBAN_LUCY) THEN
+               IF (lucy_id > 0) THEN
+                  vehicle      (:,u) = lvehicle      (lucy_id,:)
+                  week_holiday (:,u) = lweek_holiday (lucy_id,:)
+                  weh_prof     (:,u) = lweh_prof     (lucy_id,:)
+                  wdh_prof     (:,u) = lwdh_prof     (lucy_id,:)
+                  hum_prof     (:,u) = lhum_prof     (lucy_id,:)
+                  fix_holiday  (:,u) = lfix_holiday  (lucy_id,:)
+               ENDIF
+            ELSE
+               pop_den        (u) = 0.
+               vehicle      (:,u) = 0.
+               week_holiday (:,u) = 0.
+               weh_prof     (:,u) = 0.
+               wdh_prof     (:,u) = 0.
+               hum_prof     (:,u) = 0.
+               fix_holiday  (:,u) = 0.
             ENDIF
 
 #ifndef URBAN_LCZ
             thick_roof = thickroof (u) !thickness of roof [m]
             thick_wall = thickwall (u) !thickness of wall [m]
+
+            IF (all(cv_gimp(:,u)==0)) THEN
+               fgper(u) = 1.
+            ENDIF
+
+            IF ( .not. DEF_URBAN_BEM) THEN
+               t_roommax(u) = 373.16
+               t_roommin(u) = 180.00
+            ENDIF
 #else
             ! read in LCZ constants
             hwr  (u) = canyonhwr_lcz (landurban%settyp(u)) !average building height to their distance
@@ -222,38 +240,38 @@ MODULE MOD_UrbanReadin
             thick_roof = thickroof_lcz (landurban%settyp(u)) !thickness of roof [m]
             thick_wall = thickwall_lcz (landurban%settyp(u)) !thickness of wall [m]
 
-         IF (DEF_URBAN_BEM) THEN
-            t_roommax(u) = 297.65 !tbuildingmax  (landurban%settyp(u)) !maximum temperature of inner room [K]
-            t_roommin(u) = 290.65 !tbuildingmin  (landurban%settyp(u)) !minimum temperature of inner room [K]
-         ELSE
-            t_roommax(u) = 373.16                !maximum temperature of inner room [K]
-            t_roommin(u) = 180.00                !minimum temperature of inner room [K]
-         ENDIF
+            IF (DEF_URBAN_BEM) THEN
+               t_roommax(u) = 297.65 !tbuildingmax  (landurban%settyp(u)) !maximum temperature of inner room [K]
+               t_roommin(u) = 290.65 !tbuildingmin  (landurban%settyp(u)) !minimum temperature of inner room [K]
+            ELSE
+               t_roommax(u) = 373.16                !maximum temperature of inner room [K]
+               t_roommin(u) = 180.00                !minimum temperature of inner room [K]
+            ENDIF
 #endif
 
-         IF (DEF_URBAN_WATER) THEN
-            flake(u) = flake(u)/100. !urban water fractional cover
-         ELSE
-            flake(u) = 0.
-         ENDIF
-
-         IF (DEF_URBAN_TREE) THEN
-            ! set tree fractional cover (<= 1.-froof)
-            fveg_urb(u) = fveg_urb(u)/100. !urban tree percent
-            IF (flake(u) < 1.) THEN
-               fveg_urb(u) = fveg_urb(u)/(1.-flake(u))
+            IF (DEF_URBAN_WATER) THEN
+               flake(u) = flake(u)/100. !urban water fractional cover
             ELSE
-               fveg_urb(u) = 0.
+               flake(u) = 0.
             ENDIF
 
-            ! Assuming that the tree coverage is less than or equal
-            ! to the ground cover (assume no trees on the roof)
-            fveg_urb(u) = min(fveg_urb(u), 1.-froof(u))
-            fveg    (i) = fveg_urb(u)
-         ELSE
-            fveg_urb(u) = 0.
-            fveg    (i) = fveg_urb(u)
-         ENDIF
+            IF (DEF_URBAN_TREE) THEN
+               ! set tree fractional cover (<= 1.-froof)
+               fveg_urb(u) = fveg_urb(u)/100. !urban tree percent
+               IF (flake(u) < 1.) THEN
+                  fveg_urb(u) = fveg_urb(u)/(1.-flake(u))
+               ELSE
+                  fveg_urb(u) = 0.
+               ENDIF
+
+               ! Assuming that the tree coverage is less than or equal
+               ! to the ground cover (assume no trees on the roof)
+               fveg_urb(u) = min(fveg_urb(u), 1.-froof(u))
+               fveg    (i) = fveg_urb(u)
+            ELSE
+               fveg_urb(u) = 0.
+               fveg    (i) = fveg_urb(u)
+            ENDIF
 
             ! set urban tree crown top and bottom [m]
             htop_urb(u) = min(hroof(u), htop_urb(u))
