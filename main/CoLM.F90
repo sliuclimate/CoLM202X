@@ -26,7 +26,6 @@ PROGRAM CoLM
    USE MOD_Vars_1DForcing
    USE MOD_Vars_2DForcing
    USE MOD_Vars_1DFluxes
-   USE MOD_Vars_2DFluxes
    USE MOD_Vars_1DAccFluxes
    USE MOD_Forcing
    USE MOD_Hist
@@ -259,8 +258,7 @@ PROGRAM CoLM
    CALL allocate_2D_Forcing (gforc)
 
    ! Initialize history data module
-   CALL hist_init (dir_hist, DEF_hist_lon_res, DEF_hist_lat_res)
-   CALL allocate_2D_Fluxes (ghist)
+   CALL hist_init (dir_hist)
    CALL allocate_1D_Fluxes ()
 
 
@@ -402,7 +400,7 @@ PROGRAM CoLM
 
       IF (DEF_LAI_MONTHLY) THEN
          IF ((itstamp < etstamp) .and. (month /= month_p)) THEN
-               CALL LAI_readin (lai_year, month, dir_landdata)
+            CALL LAI_readin (lai_year, month, dir_landdata)
 #ifdef URBAN_MODEL
             CALL UrbanLAI_readin(lai_year, month, dir_landdata)
 #endif
