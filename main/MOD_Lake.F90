@@ -261,7 +261,7 @@ MODULE MOD_Lake
   subroutine laketem (&
            ! "in" arguments
            ! -------------------
-           itypwat      , maxsnl      , nl_soil      , nl_lake   ,&
+           patchtype    , maxsnl      , nl_soil      , nl_lake   ,&
            dlat         , deltim      , forc_hgt_u   , forc_hgt_t,&
            forc_hgt_q   , forc_us     , forc_vs      , forc_t    ,&
            forc_q       , forc_rhoair , forc_psrf    , forc_sols ,&
@@ -277,10 +277,10 @@ MODULE MOD_Lake
            ! -------------------
            t_grnd       , scv         , snowdp       , t_soisno  ,&
            wliq_soisno  , wice_soisno , imelt_soisno , t_lake    ,&
-           lake_icefrac , savedtke1, &
+           lake_icefrac , savedtke1   , &
 
 ! SNICAR model variables
-           snofrz       ,sabg_lyr     ,&
+           snofrz       ,sabg_snow_lyr, &
 ! END SNICAR model variables
 
            ! "out" arguments
@@ -339,7 +339,7 @@ MODULE MOD_Lake
 ! [ts] n   = old temperature (kelvin)
 ! [ts] n+1 = new temperature (kelvin)
 ! fin      = heat flux into lake (w/m**2)
-!          = beta*sabg_lyr(1)+forc_frl-olrg-fsena-lfevpa-hm + phi(1) + ... + phi(nl_lake)
+!          = beta*sabg_snow_lyr(1)+forc_frl-olrg-fsena-lfevpa-hm + phi(1) + ... + phi(nl_lake)
 !
 ! REVISIONS:
 ! Yongjiu Dai and Hua Yuan, 01/2023: added SNICAR for layer solar absorption, ground heat
@@ -361,20 +361,20 @@ MODULE MOD_Lake
 
   IMPLICIT NONE
 ! ------------------------ input/output variables -----------------
-  integer, INTENT(in) :: itypwat  ! land water type (4=deep lake, 5=shallow lake)
-  integer, INTENT(in) :: maxsnl   ! maximum number of snow layers
-  integer, INTENT(in) :: nl_soil  ! number of soil layers
-  integer, INTENT(in) :: nl_lake  ! number of lake layers
+  integer, INTENT(in) :: patchtype    ! land patch type (4=deep lake, 5=shallow lake)
+  integer, INTENT(in) :: maxsnl       ! maximum number of snow layers
+  integer, INTENT(in) :: nl_soil      ! number of soil layers
+  integer, INTENT(in) :: nl_lake      ! number of lake layers
 
-  real(r8), INTENT(in) :: dlat    ! latitude (radians)
-  real(r8), INTENT(in) :: deltim  ! seconds in a time step (s)
-  real(r8), INTENT(in) :: forc_hgt_u ! observational height of wind [m]
-  real(r8), INTENT(in) :: forc_hgt_t ! observational height of temperature [m]
-  real(r8), INTENT(in) :: forc_hgt_q ! observational height of humidity [m]
-  real(r8), INTENT(in) :: forc_us ! wind component in eastward direction [m/s]
-  real(r8), INTENT(in) :: forc_vs ! wind component in northward direction [m/s]
-  real(r8), INTENT(in) :: forc_t  ! temperature at agcm reference height [kelvin]
-  real(r8), INTENT(in) :: forc_q  ! specific humidity at agcm reference height [kg/kg]
+  real(r8), INTENT(in) :: dlat        ! latitude (radians)
+  real(r8), INTENT(in) :: deltim      ! seconds in a time step (s)
+  real(r8), INTENT(in) :: forc_hgt_u  ! observational height of wind [m]
+  real(r8), INTENT(in) :: forc_hgt_t  ! observational height of temperature [m]
+  real(r8), INTENT(in) :: forc_hgt_q  ! observational height of humidity [m]
+  real(r8), INTENT(in) :: forc_us     ! wind component in eastward direction [m/s]
+  real(r8), INTENT(in) :: forc_vs     ! wind component in northward direction [m/s]
+  real(r8), INTENT(in) :: forc_t      ! temperature at agcm reference height [kelvin]
+  real(r8), INTENT(in) :: forc_q      ! specific humidity at agcm reference height [kg/kg]
   real(r8), INTENT(in) :: forc_rhoair ! density air [kg/m3]
   real(r8), INTENT(in) :: forc_psrf   ! atmosphere pressure at the surface [pa]
   real(r8), INTENT(in) :: forc_sols   ! atm vis direct beam solar rad onto srf [W/m2]
@@ -388,8 +388,8 @@ MODULE MOD_Lake
   real(r8), INTENT(in) :: z_soisno(maxsnl+1:nl_soil)  ! soil/snow node depth [m]
   real(r8), INTENT(in) :: zi_soisno(maxsnl:nl_soil)   ! soil/snow depth of layer interface [m]
 
-  real(r8), INTENT(in) :: dz_lake(nl_lake)  ! lake layer thickness (m)
-  real(r8), INTENT(in) :: lakedepth         ! column lake depth (m)
+  real(r8), INTENT(in) :: dz_lake(nl_lake)      ! lake layer thickness (m)
+  real(r8), INTENT(in) :: lakedepth             ! column lake depth (m)
 
   real(r8), INTENT(in) :: vf_quartz (1:nl_soil) ! volumetric fraction of quartz within mineral soil
   real(r8), INTENT(in) :: vf_gravels(1:nl_soil) ! volumetric fraction of gravels
@@ -397,20 +397,20 @@ MODULE MOD_Lake
   real(r8), INTENT(in) :: vf_sand   (1:nl_soil) ! volumetric fraction of sand
   real(r8), INTENT(in) :: wf_gravels(1:nl_soil) ! gravimetric fraction of gravels
   real(r8), INTENT(in) :: wf_sand   (1:nl_soil) ! gravimetric fraction of sand
-  real(r8), INTENT(in) :: porsl(1:nl_soil) ! soil porosity [-]
+  real(r8), INTENT(in) :: porsl(1:nl_soil)      ! soil porosity [-]
 
-  real(r8), INTENT(in) :: csol(1:nl_soil)   ! heat capacity of soil solids [J/(m3 K)]
-  real(r8), INTENT(in) :: k_solids(1:nl_soil) ! thermal conductivity of mineralssoil [W/m-K]
-  real(r8), INTENT(in) :: dksatu(1:nl_soil) ! thermal conductivity of saturated unfrozen soil [W/m-K]
-  real(r8), INTENT(in) :: dksatf(1:nl_soil) ! thermal conductivity of saturated frozen soil [W/m-K]
-  real(r8), INTENT(in) :: dkdry(1:nl_soil)  ! thermal conductivity of dry soil [W/m-K]
-  real(r8), INTENT(in) :: BA_alpha(1:nl_soil) ! alpha in Balland and Arp(2005) thermal conductivity scheme
-  real(r8), INTENT(in) :: BA_beta(1:nl_soil)  ! beta in Balland and Arp(2005) thermal conductivity scheme
-  real(r8), INTENT(in) :: hpbl       ! atmospheric boundary layer height [m]
+  real(r8), INTENT(in) :: csol(1:nl_soil)       ! heat capacity of soil solids [J/(m3 K)]
+  real(r8), INTENT(in) :: k_solids(1:nl_soil)   ! thermal conductivity of mineralssoil [W/m-K]
+  real(r8), INTENT(in) :: dksatu(1:nl_soil)     ! thermal conductivity of saturated unfrozen soil [W/m-K]
+  real(r8), INTENT(in) :: dksatf(1:nl_soil)     ! thermal conductivity of saturated frozen soil [W/m-K]
+  real(r8), INTENT(in) :: dkdry(1:nl_soil)      ! thermal conductivity of dry soil [W/m-K]
+  real(r8), INTENT(in) :: BA_alpha(1:nl_soil)   ! alpha in Balland and Arp(2005) thermal conductivity scheme
+  real(r8), INTENT(in) :: BA_beta(1:nl_soil)    ! beta in Balland and Arp(2005) thermal conductivity scheme
+  real(r8), INTENT(in) :: hpbl                  ! atmospheric boundary layer height [m]
 
-  real(r8), INTENT(inout) :: t_grnd  ! surface temperature (kelvin)
-  real(r8), INTENT(inout) :: scv     ! snow water equivalent [mm]
-  real(r8), INTENT(inout) :: snowdp  ! snow depth [mm]
+  real(r8), INTENT(inout) :: t_grnd             ! surface temperature (kelvin)
+  real(r8), INTENT(inout) :: scv                ! snow water equivalent [mm]
+  real(r8), INTENT(inout) :: snowdp             ! snow depth [mm]
 
   real(r8), INTENT(inout) :: t_soisno    (maxsnl+1:nl_soil) ! soil/snow temperature [K]
   real(r8), INTENT(inout) :: wliq_soisno (maxsnl+1:nl_soil) ! soil/snow liquid water (kg/m2)
@@ -422,8 +422,8 @@ MODULE MOD_Lake
   real(r8), INTENT(inout) :: savedtke1             ! top level eddy conductivity (W/m K)
 
 ! SNICAR model variables
-  REAL(r8), intent(out) :: snofrz   (maxsnl+1:0)   ! snow freezing rate (col,lyr) [kg m-2 s-1]
-  REAL(r8), intent(in)  :: sabg_lyr (maxsnl+1:1)   ! solar radiation absorbed by ground [W/m2]
+  REAL(r8), intent(out) :: snofrz       (maxsnl+1:0) ! snow freezing rate (col,lyr) [kg m-2 s-1]
+  REAL(r8), intent(in)  :: sabg_snow_lyr(maxsnl+1:1) ! solar radiation absorbed by ground [W/m2]
 ! END SNICAR model variables
 
   real(r8), INTENT(out) :: taux   ! wind stress: E-W [kg/m/s**2]
@@ -915,7 +915,7 @@ MODULE MOD_Lake
 
       ! January 12, 2023 by Yongjiu Dai
       IF (DEF_USE_SNICAR .and. .not. present(urban_call)) THEN
-         hs = sabg_lyr(lb) + forc_frl - olrg - fseng - htvp*fevpg
+         hs = sabg_snow_lyr(lb) + forc_frl - olrg - fseng - htvp*fevpg
          dhsdT = 0.0
       ENDIF
 
@@ -1067,8 +1067,8 @@ MODULE MOD_Lake
             ! This looks like it should be robust even for pathological cases,
             ! like lakes thinner than za(idlak).
 
-            phi(j) = (rsfin-rsfout) * sabg_lyr(1) * (1.-betaprime)
-            if (j == nl_lake) phi_soil = rsfout * sabg_lyr(1) * (1.-betaprime)
+            phi(j) = (rsfin-rsfout) * sabg_snow_lyr(1) * (1.-betaprime)
+            if (j == nl_lake) phi_soil = rsfout * sabg_snow_lyr(1) * (1.-betaprime)
          end do
       ENDIF
 
@@ -1160,14 +1160,14 @@ MODULE MOD_Lake
                   a(j) =   - (1.-cnfac)*factx(j)* tkix(j-1)/dzm
                   b(j) = 1.+ (1.-cnfac)*factx(j)*(tkix(j)/dzp + tkix(j-1)/dzm)
                   c(j) =   - (1.-cnfac)*factx(j)* tkix(j)/dzp
-                  r(j) = tx_bef(j) + cnfac*factx(j)*(fnx(j) - fnx(j-1)) + factx(j)*sabg_lyr(j)
+                  r(j) = tx_bef(j) + cnfac*factx(j)*(fnx(j) - fnx(j-1)) + factx(j)*sabg_snow_lyr(j)
                else                               ! snow covered top lake layer
                   dzm  = (zx(j)-zx(j-1))
                   dzp  = (zx(j+1)-zx(j))
                   a(j) =   - (1.-cnfac)*factx(j)* tkix(j-1)/dzm
                   b(j) = 1.+ (1.-cnfac)*factx(j)*(tkix(j)/dzp + tkix(j-1)/dzm)
                   c(j) =   - (1.-cnfac)*factx(j)* tkix(j)/dzp
-                  r(j) = tx_bef(j) + cnfac*factx(j)*(fnx(j) - fnx(j-1)) + factx(j)*(phix(j) + betaprime*sabg_lyr(j))
+                  r(j) = tx_bef(j) + cnfac*factx(j)*(fnx(j) - fnx(j-1)) + factx(j)*(phix(j) + betaprime*sabg_snow_lyr(j))
                endif
             enddo
          else
@@ -1542,6 +1542,7 @@ MODULE MOD_Lake
              ! ---------------------------
              z_soisno    , dz_soisno   , zi_soisno , t_soisno     ,&
              wice_soisno , wliq_soisno , t_lake    , lake_icefrac ,&
+             qout_snowb  ,                                         &
              fseng       , fgrnd       , snl       , scv          ,&
              snowdp      , sm          , forc_us   , forc_vs      ,&
 ! SNICAR model variables
@@ -1607,6 +1608,7 @@ MODULE MOD_Lake
   real(r8), INTENT(inout) :: wliq_soisno(maxsnl+1:nl_soil) ! liquid water (kg/m2)
   real(r8), INTENT(inout) :: t_lake      (1:nl_lake) ! lake temperature (Kelvin)
   real(r8), INTENT(inout) :: lake_icefrac(1:nl_lake) ! mass fraction of lake layer that is frozen
+  real(r8), INTENT(inout) :: qout_snowb ! rate of water out of snow bottom (mm/s)
 
   real(r8), INTENT(inout) :: fseng  ! total sensible heat flux (W/m**2) [+ to atm]
   real(r8), INTENT(inout) :: fgrnd  ! heat flux into snow / lake (W/m**2) [+ = into soil]
@@ -1641,7 +1643,6 @@ MODULE MOD_Lake
   integer  j          ! indices
   integer lb          ! lower bound of array
 
-  real(r8) qout_snowb ! rate of water out of snow bottom (mm/s)
   real(r8) xmf        ! snow melt heat flux (W/m**2)
 
   real(r8) sumsnowice ! sum of snow ice if snow layers found above unfrozen lake [kg/m&2]

@@ -5,15 +5,21 @@ MODULE MOD_SoilSnowHydrology
 !-----------------------------------------------------------------------
   use MOD_Precision
   use MOD_Namelist, only: DEF_USE_PLANTHYDRAULICS, DEF_USE_SNICAR, &
-                          DEF_URBAN_RUN
+                          DEF_URBAN_RUN, DEF_USE_IRRIGATION, &
+                          DEF_SPLIT_SOILSNOW
 #if(defined CaMa_Flood)
    USE YOS_CMF_INPUT,      ONLY: LWINFILT
 #endif
+#ifdef CROP
+   use MOD_LandPFT, only: patch_pft_s, patch_pft_e
+   use MOD_Irrigation, only: CalIrrigationApplicationFluxes
+#endif
+  use MOD_LandPatch, only: landpatch
   IMPLICIT NONE
   SAVE
 
 ! PUBLIC MEMBER FUNCTIONS:
-  public :: WATER
+  public :: WATER_2014
   PUBLIC :: WATER_VSF
   public :: snowwater
   public :: soilwater
@@ -33,11 +39,14 @@ MODULE MOD_SoilSnowHydrology
 
 
 
-  subroutine WATER (ipatch,patchtype  ,lb          ,nl_soil ,deltim,&
+  subroutine WATER_2014 (ipatch,patchtype,lb       ,nl_soil ,deltim,&
              z_soisno    ,dz_soisno   ,zi_soisno                   ,&
-             bsw         ,porsl       ,psi0        ,hksati  ,rootr ,&
+             bsw         ,porsl       ,psi0        ,hksati  ,rootr ,rootflux, &
              t_soisno    ,wliq_soisno ,wice_soisno ,smp     ,hk    ,pg_rain ,sm    ,&
              etr         ,qseva       ,qsdew       ,qsubl   ,qfros ,&
+             qseva_soil  ,qsdew_soil  ,qsubl_soil  ,qfros_soil     ,&
+             qseva_snow  ,qsdew_snow  ,qsubl_snow  ,qfros_snow     ,&
+             fsno                                                  ,&
              rsur        ,rnof        ,qinfl       ,wtfact  ,pondmx,&
              ssi         ,wimp        ,smpmin      ,zwt     ,wa    ,&
              qcharge     ,errw_rsub     &
@@ -56,12 +65,12 @@ MODULE MOD_SoilSnowHydrology
 !
 ! Original author : Yongjiu Dai, /09/1999/, /08/2002/, /04/2014/
 !
-! FLOW DIAGRAM FOR WATER.F90
+! FLOW DIAGRAM FOR WATER_2014.F90
 !
-! WATER ===> snowwater
-!            surfacerunoff
-!            soilwater
-!            subsurfacerunoff
+! WATER_2014 ===> snowwater
+!                 surfacerunoff
+!                 soilwater
+!                 subsurfacerunoff
 !
 !=======================================================================
 
@@ -73,7 +82,7 @@ MODULE MOD_SoilSnowHydrology
 !-----------------------Argument---------- ------------------------------
   integer, INTENT(in) :: &
         ipatch           ,& ! patch index
-        patchtype           ! land water type (0=soil, 1=urban or built-up, 2=wetland,
+        patchtype           ! land patch type (0=soil, 1=urban or built-up, 2=wetland,
                             ! 3=land ice, 4=land water bodies, 99=ocean
 
   integer, INTENT(in) :: &
@@ -95,7 +104,8 @@ MODULE MOD_SoilSnowHydrology
         porsl(1:nl_soil) , &! saturated volumetric soil water content(porosity)
         psi0(1:nl_soil)  , &! saturated soil suction (mm) (NEGATIVE)
         hksati(1:nl_soil), &! hydraulic conductivity at saturation (mm h2o/s)
-        rootr(1:nl_soil) , &! root resistance of a layer, all layers add to 1.0
+        rootr(1:nl_soil) , &! water uptake farction from different layers, all layers add to 1.0
+        rootflux(1:nl_soil),&! root uptake from different layer, all layers add to transpiration
 
         t_soisno(lb:nl_soil), &! soil/snow skin temperature (K)
         pg_rain          , &! rainfall after removal of interception (mm h2o/s)
@@ -104,7 +114,16 @@ MODULE MOD_SoilSnowHydrology
         qseva            , &! ground surface evaporation rate (mm h2o/s)
         qsdew            , &! ground surface dew formation (mm h2o /s) [+]
         qsubl            , &! sublimation rate from snow pack (mm h2o /s) [+]
-        qfros               ! surface dew added to snow pack (mm h2o /s) [+]
+        qfros            , &! surface dew added to snow pack (mm h2o /s) [+]
+        qseva_soil       , &! ground soil surface evaporation rate (mm h2o/s)
+        qsdew_soil       , &! ground soil surface dew formation (mm h2o /s) [+]
+        qsubl_soil       , &! sublimation rate from soil ice pack (mm h2o /s) [+]
+        qfros_soil       , &! surface dew added to soil ice pack (mm h2o /s) [+]
+        qseva_snow       , &! ground snow surface evaporation rate (mm h2o/s)
+        qsdew_snow       , &! ground snow surface dew formation (mm h2o /s) [+]
+        qsubl_snow       , &! sublimation rate from snow pack (mm h2o /s) [+]
+        qfros_snow       , &! surface dew added to snow pack (mm h2o /s) [+]
+        fsno                ! snow fractional cover
 #if(defined CaMa_Flood)
          real(r8), INTENT(inout) :: flddepth  ! inundation water depth [mm]
          real(r8), INTENT(in)    :: fldfrc    ! inundation water depth   [0-1]
@@ -161,14 +180,27 @@ MODULE MOD_SoilSnowHydrology
 #if(defined CaMa_Flood)
   real(r8) ::gfld ,rsur_fld, qinfl_fld_subgrid ! inundation water input from top (mm/s)
 #endif
+
+#ifdef CROP
+   integer  :: ps, pe
+   integer  :: irrig_flag  ! 1 if sprinker, 2 if others
+   real(r8) :: qflx_irrig_drip
+   real(r8) :: qflx_irrig_sprinkler
+   real(r8) :: qflx_irrig_flood
+   real(r8) :: qflx_irrig_paddy
+#endif
+
 !=======================================================================
 ! [1] update the liquid water within snow layer and the water onto soil
 !=======================================================================
 
+
+IF ((.not.DEF_SPLIT_SOILSNOW) .or. (patchtype==1 .and. DEF_URBAN_RUN)) THEN
+
       if (lb>=1)then
          gwat = pg_rain + sm - qseva
       else
-         IF (.not. DEF_USE_SNICAR .or. (patchtype==1 .and. DEF_URBAN_RUN)) THEN
+         IF ((.not.DEF_USE_SNICAR) .or. (patchtype==1 .and. DEF_URBAN_RUN)) THEN
             call snowwater (lb,deltim,ssi,wimp,&
                          pg_rain,qseva,qsdew,qsubl,qfros,&
                          dz_soisno(lb:0),wice_soisno(lb:0),wliq_soisno(lb:0),gwat)
@@ -181,6 +213,38 @@ MODULE MOD_SoilSnowHydrology
                          mss_dst1(lb:0), mss_dst2(lb:0), mss_dst3(lb:0), mss_dst4(lb:0) )
          ENDIF
       endif
+
+ELSE
+
+      if (lb>=1)then
+         gwat = pg_rain + sm - qseva_soil
+      else
+         IF (.not. DEF_USE_SNICAR) THEN
+            call snowwater (lb,deltim,ssi,wimp,&
+                         pg_rain*fsno,qseva_snow,qsdew_snow,qsubl_snow,qfros_snow,&
+                         dz_soisno(lb:0),wice_soisno(lb:0),wliq_soisno(lb:0),gwat)
+         ELSE
+            call snowwater_snicar (lb,deltim,ssi,wimp,&
+                         pg_rain*fsno,qseva_snow,qsdew_snow,qsubl_snow,qfros_snow,&
+                         dz_soisno(lb:0),wice_soisno(lb:0),wliq_soisno(lb:0),gwat,&
+                         forc_aer,&
+                         mss_bcpho(lb:0), mss_bcphi(lb:0), mss_ocpho(lb:0), mss_ocphi(lb:0),&
+                         mss_dst1(lb:0), mss_dst2(lb:0), mss_dst3(lb:0), mss_dst4(lb:0) )
+         ENDIF
+         gwat = gwat + pg_rain*(1-fsno) - qseva_soil
+      endif
+ENDIF
+
+#ifdef CROP
+      if(DEF_USE_IRRIGATION)then
+         if(patchtype==0)then
+            ps = patch_pft_s(ipatch)
+            pe = patch_pft_e(ipatch)
+            call CalIrrigationApplicationFluxes(ipatch,ps,pe,deltim,qflx_irrig_drip,qflx_irrig_sprinkler,qflx_irrig_flood,qflx_irrig_paddy,irrig_flag=2)
+            gwat = gwat + qflx_irrig_drip + qflx_irrig_flood + qflx_irrig_paddy
+         end if
+      end if
+#endif
 
 !=======================================================================
 ! [2] surface runoff and infiltration
@@ -216,6 +280,7 @@ MODULE MOD_SoilSnowHydrology
 
       ! infiltration into surface soil layer
       qinfl = gwat - rsur
+
 #if(defined CaMa_Flood)
    IF (LWINFILT) then
          !  re-infiltration [mm/s] calculation.
@@ -257,13 +322,14 @@ MODULE MOD_SoilSnowHydrology
       call soilwater(patchtype,nl_soil,deltim,wimp,smpmin,&
                      qinfl,etr,z_soisno(1:),dz_soisno(1:),zi_soisno(0:),&
                      t_soisno(1:),vol_liq,vol_ice,smp,hk,icefrac,eff_porosity,&
-                     porsl,hksati,bsw,psi0,rootr,&
+                     porsl,hksati,bsw,psi0,rootr,rootflux,&
                      zwt,dwat,qcharge)
 
       ! update the mass of liquid water
       do j= 1, nl_soil
          wliq_soisno(j) = wliq_soisno(j)+dwat(j)*dzmm(j)
       enddo
+
 
 !=======================================================================
 ! [4] subsurface runoff and the corrections
@@ -278,8 +344,8 @@ MODULE MOD_SoilSnowHydrology
       ! total runoff (mm/s)
       rnof = rsubst + rsur
 
-
       ! Renew the ice and liquid mass due to condensation
+IF ((.not.DEF_SPLIT_SOILSNOW) .or. (patchtype==1 .and. DEF_URBAN_RUN)) THEN
       if(lb >= 1)then
          ! make consistent with how evap_grnd removed in infiltration
          wliq_soisno(1) = max(0., wliq_soisno(1) + qsdew * deltim)
@@ -292,6 +358,17 @@ MODULE MOD_SoilSnowHydrology
       if(lb >= 1)then
          err_solver = err_solver-(qsdew+qfros-qsubl)*deltim
       endif
+
+ELSE
+      wliq_soisno(1) = max(0., wliq_soisno(1) + qsdew_soil * deltim)
+      wice_soisno(1) = max(0., wice_soisno(1) + (qfros_soil-qsubl_soil) * deltim)
+
+      err_solver = (sum(wliq_soisno(1:))+sum(wice_soisno(1:))+wa) - w_sum &
+                 - (gwat-etr-rnof-errw_rsub)*deltim
+
+      err_solver = err_solver-(qsdew_soil+qfros_soil-qsubl_soil)*deltim
+ENDIF
+
 #if(defined CaMa_Flood)
       IF (LWINFILT) THEN
          err_solver = err_solver-(gfld-rsur_fld)*fldfrc*deltim
@@ -343,7 +420,7 @@ MODULE MOD_SoilSnowHydrology
 
   endif
 
-  end subroutine WATER
+  end subroutine WATER_2014
 
 !-----------------------------------------------------------------------
   subroutine WATER_VSF (ipatch,  patchtype,lb      ,nl_soil ,deltim ,&
@@ -355,14 +432,17 @@ MODULE MOD_SoilSnowHydrology
              theta_r     ,alpha_vgm   ,n_vgm       ,L_vgm   ,        &
              sc_vgm      ,fc_vgm      ,                              &
 #endif
-             porsl       ,psi0        ,hksati      ,rootr   ,        &
+             porsl       ,psi0        ,hksati      ,rootr   ,rootflux,&
              t_soisno    ,wliq_soisno ,wice_soisno ,smp     ,hk     ,&
              pg_rain     ,sm          ,                              &
              etr         ,qseva       ,qsdew       ,qsubl   ,qfros  ,&
+             qseva_soil  ,qsdew_soil  ,qsubl_soil  ,qfros_soil      ,&
+             qseva_snow  ,qsdew_snow  ,qsubl_snow  ,qfros_snow      ,&
+             fsno                                                   ,&
              rsur        ,rnof        ,qinfl       ,wtfact  ,ssi    ,&
              pondmx      ,                                           &
-             wimp        ,zwt         ,wdsrf       ,wa      ,qcharge,&
-             errw_rsub                 &
+             wimp        ,zwt         ,wdsrf       ,wa      ,wetwat ,&
+             qcharge     ,errw_rsub                                  &
 #if(defined CaMa_Flood)
              ,flddepth,fldfrc,qinfl_fld&
 #endif
@@ -385,26 +465,22 @@ MODULE MOD_SoilSnowHydrology
 !      With Explicit Tracking of Wetting Front and Water Table Locations.
 !    Water Resources Research. doi:10.1029/2019wr025368
 !
-! FLOW DIAGRAM FOR WATER_VSF.F90
-!
-! WATER ===> snowwater
-!            surfacerunoff     [caculated by lateral flow when defined Lateral_Flow]
-!            subsurfacerunoff  [caculated by lateral flow when defined Lateral_Flow]
-!            soilwater         [Variably Saturated Flow algorithm]
-!
 !===================================================================================
 
   use MOD_Precision
   USE MOD_Hydro_SoilWater
+  USE MOD_Vars_TimeInvariants, only : wetwatmax
   use MOD_Const_Physical, only : denice, denh2o, tfrz
-  USE MOD_Vars_1DFluxes,  only : rsub
+#ifdef DataAssimilation
+  USE MOD_DA_GRACE, only : fslp_k
+#endif
 
   implicit none
 
 !-----------------------Argument---------- ------------------------------
   integer, INTENT(in) :: &
         ipatch           ,& ! patch index
-        patchtype           ! land water type (0=soil, 1=urban or built-up, 2=wetland,
+        patchtype           ! land patch type (0=soil, 1=urban or built-up, 2=wetland,
                             ! 3=land ice, 4=land water bodies, 99=ocean
 
   integer, INTENT(in) :: &
@@ -424,17 +500,18 @@ MODULE MOD_SoilSnowHydrology
         bsw      (1:nl_soil), &! clapp and hornbereger "b" parameter [-]
 #endif
 #ifdef vanGenuchten_Mualem_SOIL_MODEL
-        theta_r  (1:nl_soil), &
-        alpha_vgm(1:nl_soil), &
-        n_vgm    (1:nl_soil), &
-        L_vgm    (1:nl_soil), &
-        sc_vgm   (1:nl_soil), &
-        fc_vgm   (1:nl_soil), &
+        theta_r  (1:nl_soil), & ! residual moisture content [-]
+        alpha_vgm(1:nl_soil), & ! a parameter corresponding approximately to the inverse of the air-entry value
+        n_vgm    (1:nl_soil), & ! a shape parameter [dimensionless]
+        L_vgm    (1:nl_soil), & ! pore-connectivity parameter [dimensionless]
+        sc_vgm   (1:nl_soil), & ! saturation at the air entry value in the classical vanGenuchten model [-]
+        fc_vgm   (1:nl_soil), & ! a scaling factor by using air entry value in the Mualem model [-]
 #endif
         porsl(1:nl_soil) , &! saturated volumetric soil water content(porosity)
         psi0(1:nl_soil)  , &! saturated soil suction (mm) (NEGATIVE)
         hksati(1:nl_soil), &! hydraulic conductivity at saturation (mm h2o/s)
-        rootr(1:nl_soil) , &! root resistance of a layer, all layers add to 1.0
+        rootr(1:nl_soil) , &! water uptake farction from different layers, all layers add to 1.0
+        rootflux(1:nl_soil),&! root uptake from different layer, all layers add to transpiration
 
         t_soisno(lb:nl_soil), &! soil/snow skin temperature (K)
         pg_rain          , &! rainfall after removal of interception (mm h2o/s)
@@ -443,12 +520,22 @@ MODULE MOD_SoilSnowHydrology
         qseva            , &! ground surface evaporation rate (mm h2o/s)
         qsdew            , &! ground surface dew formation (mm h2o /s) [+]
         qsubl            , &! sublimation rate from snow pack (mm h2o /s) [+]
-        qfros               ! surface dew added to snow pack (mm h2o /s) [+]
+        qfros            , &! surface dew added to snow pack (mm h2o /s) [+]
+        qseva_soil       , &! ground soil surface evaporation rate (mm h2o/s)
+        qsdew_soil       , &! ground soil surface dew formation (mm h2o /s) [+]
+        qsubl_soil       , &! sublimation rate from soil ice pack (mm h2o /s) [+]
+        qfros_soil       , &! surface dew added to soil ice pack (mm h2o /s) [+]
+        qseva_snow       , &! ground snow surface evaporation rate (mm h2o/s)
+        qsdew_snow       , &! ground snow surface dew formation (mm h2o /s) [+]
+        qsubl_snow       , &! sublimation rate from snow pack (mm h2o /s) [+]
+        qfros_snow       , &! surface dew added to snow pack (mm h2o /s) [+]
+        fsno                ! snow fractional cover
 #if(defined CaMa_Flood)
   real(r8), INTENT(inout) :: flddepth  ! inundation water input from top (mm/s)
   real(r8), INTENT(in)    :: fldfrc    ! inundation water input from top (mm/s)
   real(r8), INTENT(out)   :: qinfl_fld ! inundation water input from top (mm/s)
 #endif
+
   real(r8), INTENT(inout) :: &
         wice_soisno(lb:nl_soil) , &! ice lens (kg/m2)
         wliq_soisno(lb:nl_soil) , &! liquid water (kg/m2)
@@ -456,7 +543,8 @@ MODULE MOD_SoilSnowHydrology
         hk (1:nl_soil)   , &! hydraulic conductivity [mm h2o/m]
         zwt              , &! the depth from ground (soil) surface to water table [m]
         wdsrf            , &! depth of surface water [mm]
-        wa                  ! water storage in aquifer [mm]
+        wa               , &! water storage in aquifer [mm]
+        wetwat              ! water storage in wetland [mm]
 
   real(r8), INTENT(out) :: &
         rsur             , &! surface runoff (mm h2o/s)
@@ -496,13 +584,22 @@ MODULE MOD_SoilSnowHydrology
        icefrac(1:nl_soil)   ! ice fraction (-)
 
   real(r8) :: err_solver, w_sum, wresi(1:nl_soil)
-  REAL(r8) :: qraing
+  REAL(r8) :: qgtop
 
   REAL(r8) :: zwtmm
   REAL(r8) :: sp_zc(1:nl_soil), sp_zi(0:nl_soil), sp_dz(1:nl_soil) ! in mm
   LOGICAL  :: is_permeable(1:nl_soil)
   REAL(r8) :: dzsum, dz
   REAL(r8) :: icefracsum, fracice_rsub, imped
+
+#ifdef CROP
+   integer  :: ps, pe
+   integer  :: irrig_flag  ! 1 if sprinker, 2 if others
+   real(r8) :: qflx_irrig_drip
+   real(r8) :: qflx_irrig_sprinkler
+   real(r8) :: qflx_irrig_flood
+   real(r8) :: qflx_irrig_paddy
+#endif
 
 #ifdef Campbell_SOIL_MODEL
   real(r8) :: theta_r(1:nl_soil)
@@ -527,12 +624,13 @@ MODULE MOD_SoilSnowHydrology
 ! [1] update the liquid water within snow layer and the water onto soil
 !=======================================================================
 
+IF ((.not.DEF_SPLIT_SOILSNOW) .or. (patchtype==1 .and. DEF_URBAN_RUN)) THEN
+
       if (lb>=1)then
-         ! gwat = pg_rain + sm - qseva + qsdew
-         gwat = pg_rain + sm + qsdew
+         gwat = pg_rain + sm - qseva
       else
 
-         IF (.not. DEF_USE_SNICAR .or. (patchtype==1 .and. DEF_URBAN_RUN)) THEN
+         IF ((.not.DEF_USE_SNICAR) .or. (patchtype==1 .and. DEF_URBAN_RUN)) THEN
             call snowwater (lb,deltim,ssi,wimp,&
                          pg_rain,qseva,qsdew,qsubl,qfros,&
                          dz_soisno(lb:0),wice_soisno(lb:0),wliq_soisno(lb:0),gwat)
@@ -546,6 +644,39 @@ MODULE MOD_SoilSnowHydrology
          ENDIF
       endif
 
+ELSE
+
+      if (lb>=1)then
+         gwat = pg_rain + sm - qseva_soil
+      else
+         IF (.not. DEF_USE_SNICAR) THEN
+            call snowwater (lb,deltim,ssi,wimp,&
+                         pg_rain*fsno,qseva_snow,qsdew_snow,qsubl_snow,qfros_snow,&
+                         dz_soisno(lb:0),wice_soisno(lb:0),wliq_soisno(lb:0),gwat)
+         ELSE
+            call snowwater_snicar (lb,deltim,ssi,wimp,&
+                         pg_rain*fsno,qseva_snow,qsdew_snow,qsubl_snow,qfros_snow,&
+                         dz_soisno(lb:0),wice_soisno(lb:0),wliq_soisno(lb:0),gwat,&
+                         forc_aer,&
+                         mss_bcpho(lb:0), mss_bcphi(lb:0), mss_ocpho(lb:0), mss_ocphi(lb:0),&
+                         mss_dst1(lb:0), mss_dst2(lb:0), mss_dst3(lb:0), mss_dst4(lb:0) )
+         ENDIF
+         gwat = gwat + pg_rain*(1-fsno) - qseva_soil
+      endif
+ENDIF
+
+
+#ifdef CROP
+      if(DEF_USE_IRRIGATION)then
+         if(patchtype==0)then
+            ps = patch_pft_s(ipatch)
+            pe = patch_pft_e(ipatch)
+            call CalIrrigationApplicationFluxes(ipatch,ps,pe,deltim,qflx_irrig_drip,qflx_irrig_sprinkler,qflx_irrig_flood,qflx_irrig_paddy,irrig_flag=2)
+            gwat = gwat + qflx_irrig_drip + qflx_irrig_flood + qflx_irrig_paddy
+         end if
+      end if
+#endif
+
 !=======================================================================
 ! [2] surface runoff and infiltration
 !=======================================================================
@@ -555,15 +686,8 @@ MODULE MOD_SoilSnowHydrology
       ! For water balance check, the sum of water in soil column before the calcultion
       w_sum = sum(wliq_soisno(1:nl_soil)) + sum(wice_soisno(1:nl_soil)) + wa + wdsrf
 
-      ! Renew the ice and liquid mass due to condensation
-      if(lb >= 1)then
-         ! make consistent with how evap_grnd removed in infiltration
-         wliq_soisno(1) = max(0., wliq_soisno(1) - qseva * deltim)
-         wice_soisno(1) = max(0., wice_soisno(1) + (qfros-qsubl) * deltim)
-      end if
-
-      ! Due to the increase in volume after freezing, the total volume of water and 
-      ! ice may exceed the porosity of the soil. This excess water is temporarily 
+      ! Due to the increase in volume after freezing, the total volume of water and
+      ! ice may exceed the porosity of the soil. This excess water is temporarily
       ! stored in "wresi". After calculating the movement of soil water, "wresi"
       ! is added back to "wliq_soisno".
       wresi(1:nl_soil) = 0.
@@ -582,12 +706,14 @@ MODULE MOD_SoilSnowHydrology
             vol_liq(j) = wliq_soisno(j)/(dz_soisno(j)*denh2o)
             vol_liq(j) = min(eff_porosity(j), max(0., vol_liq(j)))
             wresi(j) = wliq_soisno(j) - dz_soisno(j) * denh2o * vol_liq(j)
+         ELSE
+            vol_liq(j) = 0.
          ENDIF
       enddo
 
       ! surface runoff including water table and surface staturated area
 
-#ifndef LATERAL_FLOW
+#ifndef CatchLateralFlow
       if (gwat > 0.) then
          call surfacerunoff (nl_soil,wtfact,wimp,porsl,psi0,hksati,&
                              z_soisno(1:),dz_soisno(1:),zi_soisno(0:),&
@@ -596,12 +722,16 @@ MODULE MOD_SoilSnowHydrology
          rsur = 0.
       endif
 
+#ifdef DataAssimilation
+      rsur = max(min(rsur * fslp_k(ipatch), gwat), 0.)
+#endif
+
       ! infiltration into surface soil layer
-      qraing = gwat - rsur
+      qgtop = gwat - rsur
 #else
       ! for lateral flow, "rsur" is calculated in HYDRO/MOD_Hydro_SurfaceFlow.F90
       ! and is removed from surface water there.
-      qraing = gwat
+      qgtop = gwat
 #endif
 
 #if(defined CaMa_Flood)
@@ -628,10 +758,11 @@ MODULE MOD_SoilSnowHydrology
 
          ENDIF
          qinfl_fld=qinfl_fld_subgrid*fldfrc ! [mm/s] re-infiltration in grid.
-         qraing=qinfl_fld+qraing ! [mm/s] total infiltration in grid.
+         qgtop=qinfl_fld+qgtop ! [mm/s] total infiltration in grid.
          flddepth=flddepth-deltim*qinfl_fld_subgrid ! renew flood depth [mm], the flood depth is reduced by re-infiltration but only in inundation area.
       ENDIF
 #endif
+
 !=======================================================================
 ! [3] determine the change of soil water
 !=======================================================================
@@ -643,12 +774,12 @@ MODULE MOD_SoilSnowHydrology
 
       ! check consistancy between water table location and liquid water content
       DO j = 1, nl_soil
-         IF ((vol_liq(j) < eff_porosity(j)-1.e-6) .and. (zwtmm <= sp_zi(j-1))) THEN
+         IF ((vol_liq(j) < eff_porosity(j)-1.e-8) .and. (zwtmm <= sp_zi(j-1))) THEN
             zwtmm = sp_zi(j)
          ENDIF
       ENDDO
 
-#ifndef LATERAL_FLOW
+#ifndef CatchLateralFlow
       !-- Topographic runoff  ----------------------------------------------------------
       imped = 1.0
       IF (zwtmm < sp_zi(nl_soil)) THEN
@@ -669,8 +800,11 @@ MODULE MOD_SoilSnowHydrology
          ENDIF
       ENDIF
 
-      rsub(ipatch) = imped * 5.5e-3 * exp(-2.5*zwt)  ! drainage (positive = out of soil column)
-      rsubst = rsub(ipatch)
+      rsubst = imped * 5.5e-3 * exp(-2.5*zwt)  ! drainage (positive = out of soil column)
+#ifdef DataAssimilation
+      rsubst = rsubst * fslp_k(ipatch)
+#endif
+
 #else
       ! for lateral flow:
       ! "rsub" is calculated and removed from soil water in HYDRO/MOD_Hydro_SubsurfaceFlow.F90
@@ -715,12 +849,27 @@ MODULE MOD_SoilSnowHydrology
 
       wdsrf = max(0., wdsrf)
 
+      IF ((.not. is_permeable(1)) .and. (qgtop < 0.)) THEN
+         IF (wdsrf > 0) THEN
+            wdsrf = wdsrf + qgtop * deltim
+            IF (wdsrf < 0) THEN
+               wliq_soisno(1) = max(0., wliq_soisno(1) + wdsrf)
+               wdsrf = 0
+            ENDIF
+         ELSE
+            wliq_soisno(1) = max(0., wliq_soisno(1) + qgtop * deltim)
+         ENDIF
+
+         qgtop = 0.
+
+      ENDIF
+
       CALL soil_water_vertical_movement ( &
          nl_soil, deltim, sp_zc(1:nl_soil), sp_zi(0:nl_soil), is_permeable(1:nl_soil),    &
          eff_porosity(1:nl_soil), theta_r(1:nl_soil), psi0(1:nl_soil), hksati(1:nl_soil), &
          nprms, prms(:,1:nl_soil), porsl(nl_soil),     &
-         qraing, etr, rootr(1:nl_soil), rsubst, qinfl, &
-         wdsrf, zwtmm, wa, vol_liq(1:nl_soil), smp(1:nl_soil), hk(1:nl_soil))
+         qgtop, etr, rootr(1:nl_soil), rootflux(1:nl_soil), rsubst, qinfl, &
+         wdsrf, zwtmm, wa, vol_liq(1:nl_soil), smp(1:nl_soil), hk(1:nl_soil), 1.e-3)
 
       ! update the mass of liquid water
       DO j = nl_soil, 1, -1
@@ -742,34 +891,53 @@ MODULE MOD_SoilSnowHydrology
 
       zwt = zwtmm/1000.0
 
-#ifndef LATERAL_FLOW
+      ! Renew the ice and liquid mass due to condensation
+IF ((.not.DEF_SPLIT_SOILSNOW) .or. (patchtype==1 .and. DEF_URBAN_RUN)) THEN
+      if(lb >= 1)then
+         ! make consistent with how evap_grnd removed in infiltration
+         wliq_soisno(1) = max(0., wliq_soisno(1) + qsdew * deltim)
+         wice_soisno(1) = max(0., wice_soisno(1) + (qfros-qsubl) * deltim)
+      end if
+ELSE
+      wliq_soisno(1) = max(0., wliq_soisno(1) + qsdew_soil * deltim)
+      wice_soisno(1) = max(0., wice_soisno(1) + (qfros_soil-qsubl_soil) * deltim)
+ENDIF
+
+#ifndef CatchLateralFlow
      IF (wdsrf > pondmx) THEN
         rsur = rsur + (wdsrf - pondmx) / deltim
         wdsrf = pondmx
      ENDIF
+
+     ! total runoff (mm/s)
+     rnof = rsubst + rsur
 #endif
 
-      ! total runoff (mm/s)
-      rnof = rsub(ipatch) + rsur
-
-#ifndef LATERAL_FLOW
+#ifndef CatchLateralFlow
       err_solver = (sum(wliq_soisno(1:))+sum(wice_soisno(1:))+wa+wdsrf) - w_sum &
          - (gwat-etr-rsur-rsubst)*deltim
 #else
       err_solver = (sum(wliq_soisno(1:))+sum(wice_soisno(1:))+wa+wdsrf) - w_sum &
-         - (gwat-etr-rsubst)*deltim
+         - (gwat-etr)*deltim
 #endif
+
+IF ((.not.DEF_SPLIT_SOILSNOW) .or. (patchtype==1 .and. DEF_URBAN_RUN)) THEN
       if(lb >= 1)then
-         err_solver = err_solver - (qfros-qseva-qsubl)*deltim
+         err_solver = err_solver - (qsdew+qfros-qsubl)*deltim
       endif
+ELSE
+      err_solver = err_solver-(qsdew_soil+qfros_soil-qsubl_soil)*deltim
+ENDIF
+
 #if(defined CaMa_Flood)
       IF (LWINFILT) THEN
          err_solver = err_solver-(gfld-rsur_fld)*fldfrc*deltim
       ENDIF
 #endif
+
 #if(defined CoLMDEBUG)
       if(abs(err_solver) > 1.e-3)then
-         write(6,'(A,E20.5)') 'Warning (WATER_VSF): water balance violation', err_solver
+         write(6,'(A,E20.5,I0)') 'Warning (WATER_VSF): water balance violation', err_solver,landpatch%eindex(ipatch)
       endif
       IF (any(wliq_soisno < -1.e-3)) THEN
          write(6,'(A,10E20.5)') 'Warning (WATER_VSF): negative soil water', wliq_soisno(1:nl_soil)
@@ -777,38 +945,55 @@ MODULE MOD_SoilSnowHydrology
 #endif
 
 !=======================================================================
-! [6] assumed hydrological scheme for the wetland and glacier
+! [6] assumed hydrological scheme for the wetland
 !=======================================================================
 
   else
       if(patchtype==2)then        ! WETLAND
          qinfl = 0.
-#ifndef LATERAL_FLOW
-         rsur = max(0.,gwat)
-         rsub(ipatch) = 0
-#endif
-         rnof = rsur + rsub(ipatch)
-         do j = 1, nl_soil
-            if(t_soisno(j)>tfrz)then
-               wice_soisno(j) = 0.0
-               wliq_soisno(j) = porsl(j)*dz_soisno(j)*1000.
-            endif
-         enddo
-      endif
-      if(patchtype==3)then        ! LAND ICE
-         qinfl = 0.
-#ifndef LATERAL_FLOW
-         rsur = max(0.0,gwat)
-         rsub(ipatch) = 0
-#endif
-         rnof = rsur + rsub(ipatch)
-         wice_soisno(1:nl_soil) = dz_soisno(1:nl_soil)*1000.
-         wliq_soisno(1:nl_soil) = 0.0
-      endif
+         zwt = 0.
+         qcharge = 0.
+         
 
-      wa = 0.
-      zwt = 0.
-      qcharge = 0.
+         IF (lb >= 1) THEN
+            wetwat = wdsrf + wa + wetwat + (gwat - etr + qsdew + qfros - qsubl) * deltim
+         ELSE
+            wetwat = wdsrf + wa + wetwat + (gwat - etr) * deltim
+         ENDIF
+
+         wresi(:) = 0.
+         DO j = 1, nl_soil
+            if(t_soisno(j)>tfrz)then
+               wresi(j) = max(wliq_soisno(j) - porsl(j)*dz_soisno(j)*1000., 0.)
+               wliq_soisno(j) = wliq_soisno(j) - wresi(j)
+            endif
+         ENDDO
+
+         wetwat = wetwat + sum(wresi)
+
+         IF (wetwat > wetwatmax) THEN
+            wdsrf  = wetwat - wetwatmax
+            wetwat = wetwatmax
+            wa     = 0.
+         ELSEIF (wetwat < 0) THEN
+            wa     = wetwat
+            wdsrf  = 0.
+            wetwat = 0.
+         ELSE
+            wdsrf = 0.
+            wa    = 0.
+         ENDIF
+
+#ifndef CatchLateralFlow
+         IF (wdsrf > pondmx) THEN
+            rsur = (wdsrf - pondmx) / deltim
+            wdsrf = pondmx
+         ELSE
+            rsur = 0.
+         ENDIF
+         rnof = rsur
+#endif
+      endif
 
   endif
 
@@ -1432,7 +1617,7 @@ MODULE MOD_SoilSnowHydrology
   subroutine soilwater(patchtype,nl_soil,deltim,wimp,smpmin,&
                        qinfl,etr,z_soisno,dz_soisno,zi_soisno,&
                        t_soisno,vol_liq,vol_ice,smp,hk,icefrac,eff_porosity,&
-                       porsl,hksati,bsw,psi0,rootr,&
+                       porsl,hksati,bsw,psi0,rootr,rootflux,&
                        zwt,dwat,qcharge)
 
 !-----------------------------------------------------------------------
@@ -1506,7 +1691,7 @@ MODULE MOD_SoilSnowHydrology
 
     IMPLICIT NONE
 
-    INTEGER , intent(in) :: patchtype ! land water type
+    INTEGER , intent(in) :: patchtype ! land patch type
     integer , INTENT(in) :: nl_soil   ! number of soil layers
     real(r8), INTENT(in) :: deltim    ! land model time step (sec)
     real(r8), INTENT(in) :: wimp      ! water impremeable if porosity less than wimp
@@ -1530,6 +1715,7 @@ MODULE MOD_SoilSnowHydrology
     real(r8), INTENT(in) :: bsw    (1:nl_soil) ! Clapp and Hornberger "b"
     real(r8), INTENT(in) :: psi0   (1:nl_soil) ! minimum soil suction (mm) [-]
     real(r8), INTENT(in) :: rootr  (1:nl_soil) ! effective fraction of roots in each soil layer
+    real(r8), INTENT(in) :: rootflux(1:nl_soil)! root uptake from different layers, all layers add to transpiration
     real(r8), INTENT(in) :: zwt                ! the depth from ground (soil) surface to water table [m]
 
     real(r8), intent(out) :: dwat(1:nl_soil)   ! change of soil water [m3/m3]
@@ -1595,7 +1781,7 @@ MODULE MOD_SoilSnowHydrology
 
     ! Compute matric potential and derivative based on liquid water content only
     do j = 1, nl_soil
-       if(DEF_USE_PLANTHYDRAULICS .and. (patchtype/=1 .or. .not.DEF_URBAN_RUN))then
+       if(DEF_USE_PLANTHYDRAULICS .and. (patchtype/=1 .or. (.not.DEF_URBAN_RUN)))then
           if(t_soisno(j)>=tfrz) then
              if(porsl(j)<1.e-6)then     ! bed rock
                 s_node = 0.001
@@ -1711,8 +1897,8 @@ MODULE MOD_SoilSnowHydrology
     amx(j) = 0.
     bmx(j) = dzmm(j)/deltim + dqodw1(j)
     cmx(j) = dqodw2(j)
-    if(DEF_USE_PLANTHYDRAULICS .and. (patchtype/=1 .or. .not.DEF_URBAN_RUN))then
-       rmx(j) =  qin(j) - qout(j) - rootr(j)
+    if(DEF_USE_PLANTHYDRAULICS .and. (patchtype/=1 .or. (.not.DEF_URBAN_RUN)))then
+       rmx(j) =  qin(j) - qout(j) - rootflux(j)
     else
        rmx(j) =  qin(j) - qout(j) - etr*rootr(j)
     end if
@@ -1731,8 +1917,8 @@ MODULE MOD_SoilSnowHydrology
        amx(j) = -dqidw0(j)
        bmx(j) =  dzmm(j)/deltim - dqidw1(j) + dqodw1(j)
        cmx(j) =  dqodw2(j)
-       if(DEF_USE_PLANTHYDRAULICS .and. (patchtype/=1 .or. .not.DEF_URBAN_RUN))then
-          rmx(j) =  qin(j) - qout(j) - rootr(j)
+       if(DEF_USE_PLANTHYDRAULICS .and. (patchtype/=1 .or. (.not.DEF_URBAN_RUN)))then
+          rmx(j) =  qin(j) - qout(j) - rootflux(j)
        else
           rmx(j) =  qin(j) - qout(j) - etr*rootr(j)
        end if
@@ -1758,8 +1944,8 @@ MODULE MOD_SoilSnowHydrology
     amx(j) = -dqidw0(j)
     bmx(j) =  dzmm(j)/deltim - dqidw1(j) + dqodw1(j)
     cmx(j) =  dqodw2(j)
-    if(DEF_USE_PLANTHYDRAULICS .and. (patchtype/=1 .or. .not.DEF_URBAN_RUN))then
-       rmx(j) =  qin(j) - qout(j) - rootr(j)
+    if(DEF_USE_PLANTHYDRAULICS .and. (patchtype/=1 .or. (.not.DEF_URBAN_RUN)))then
+       rmx(j) =  qin(j) - qout(j) - rootflux(j)
     else
        rmx(j) =  qin(j) - qout(j) - etr*rootr(j)
     end if
@@ -1772,8 +1958,8 @@ MODULE MOD_SoilSnowHydrology
 ! The mass balance error (mm) for this time step is
     errorw = -deltim*(qin(1)-qout(nl_soil)-dqodw1(nl_soil)*dwat(nl_soil))
     do j = 1, nl_soil
-       if(DEF_USE_PLANTHYDRAULICS .and. (patchtype/=1 .or. .not.DEF_URBAN_RUN))then
-          errorw = errorw+dwat(j)*dzmm(j)+rootr(j)*deltim
+       if(DEF_USE_PLANTHYDRAULICS .and. (patchtype/=1 .or. (.not.DEF_URBAN_RUN)))then
+          errorw = errorw+dwat(j)*dzmm(j)+rootflux(j)*deltim
        else
           errorw = errorw+dwat(j)*dzmm(j)+etr*rootr(j)*deltim
        end if

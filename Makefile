@@ -3,8 +3,10 @@
 include include/Makeoptions
 HEADER = include/define.h
 
-INCLUDE_DIR = -Iinclude -I.bld -I${NETCDF_INC}
-VPATH = include : share : mksrfdata : mkinidata : main : main/HYDRO : main/BGC : main/URBAN : main/LULCC : CaMa/src : postprocess : .bld
+INCLUDE_DIR = -Iinclude -I.bld/ -I${NETCDF_INC}
+VPATH = include : share : mksrfdata : mkinidata \
+	: main : main/HYDRO : main/BGC : main/URBAN : main/LULCC : main/DA \
+	: CaMa/src : postprocess : .bld
 
 # ********** Targets ALL **********
 .PHONY: all
@@ -23,10 +25,10 @@ mkdir_build :
 
 OBJS_SHARED =    \
 				  MOD_Precision.o              \
-				  MOD_Vars_Global.o            \
-				  MOD_Const_Physical.o         \
 				  MOD_SPMD_Task.o              \
 				  MOD_Namelist.o               \
+				  MOD_Vars_Global.o            \
+				  MOD_Const_Physical.o         \
 				  MOD_Const_LC.o               \
 				  MOD_Utils.o                  \
 				  MOD_TimeManager.o            \
@@ -46,17 +48,18 @@ OBJS_SHARED =    \
 				  MOD_Mapping_Grid2Pset.o      \
 				  MOD_Mapping_Pset2Grid.o      \
 				  MOD_AggregationRequestData.o \
-				  MOD_PixelsetShadow.o         \
+				  MOD_PixelsetShared.o         \
 				  MOD_LandElm.o                \
 				  MOD_LandHRU.o                \
 				  MOD_LandPatch.o              \
 				  MOD_LandUrban.o              \
+				  MOD_LandCrop.o               \
 				  MOD_LandPFT.o                \
-				  MOD_LandPC.o                 \
 				  MOD_SrfdataDiag.o            \
 				  MOD_SrfdataRestart.o         \
 				  MOD_ElmVector.o              \
-				  MOD_HRUVector.o
+				  MOD_HRUVector.o              \
+				  MOD_Urban_Const_LCZ.o
 
 ${OBJS_SHARED} : %.o : %.F90 ${HEADER}
 	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD}.bld
@@ -102,7 +105,6 @@ OBJS_BASIC =    \
 				 MOD_BGC_Vars_PFTimeVariables.o \
 				 MOD_BGC_Vars_TimeInvariants.o  \
 				 MOD_BGC_Vars_TimeVariables.o   \
-				 MOD_Urban_Const_LCZ.o          \
 				 MOD_Urban_Vars_1DFluxes.o      \
 				 MOD_Urban_Vars_TimeVariables.o \
 				 MOD_Urban_Vars_TimeInvariants.o\
@@ -110,7 +112,6 @@ OBJS_BASIC =    \
 				 MOD_Vars_TimeInvariants.o      \
 				 MOD_Vars_TimeVariables.o       \
 				 MOD_Vars_1DPFTFluxes.o         \
-				 MOD_Vars_1DPCFluxes.o          \
 				 MOD_Vars_1DFluxes.o            \
 				 MOD_Vars_1DForcing.o           \
 				 MOD_Hydro_SoilFunction.o       \
@@ -140,8 +141,12 @@ OBJS_BASIC =    \
 				 MOD_SoilParametersReadin.o     \
 				 MOD_HtopReadin.o               \
 				 MOD_UrbanReadin.o              \
+				 MOD_BGC_CNSummary.o            \
 				 MOD_IniTimeVariable.o          \
 				 MOD_UrbanIniTimeVariable.o     \
+				 MOD_ElementNeighbour.o         \
+				 MOD_Catch_HillslopeNetwork.o   \
+				 MOD_Catch_RiverLakeNetwork.o   \
 				 MOD_Initialize.o
 
 
@@ -210,14 +215,11 @@ OBJS_CAMA_T = $(addprefix .bld/,${OBJECTS_CAMA})
 endif
 
 OBJS_MAIN = \
-				MOD_Hydro_HillslopeNetwork.o              \
-				MOD_Hydro_RiverLakeNetwork.o              \
-				MOD_Hydro_BasinNeighbour.o                \
-				MOD_Hydro_HillslopeFlow.o                 \
-				MOD_Hydro_SubsurfaceFlow.o                \
-				MOD_Hydro_RiverLakeFlow.o                 \
+				MOD_Catch_HillslopeFlow.o                 \
+				MOD_Catch_SubsurfaceFlow.o                \
+				MOD_Catch_RiverLakeFlow.o                 \
 				MOD_Hydro_Hist.o                          \
-				MOD_Hydro_LateralFlow.o                   \
+				MOD_Catch_LateralFlow.o                   \
 				MOD_BGC_CNCStateUpdate1.o                 \
 				MOD_BGC_CNCStateUpdate2.o                 \
 				MOD_BGC_CNCStateUpdate3.o                 \
@@ -240,7 +242,6 @@ OBJS_MAIN = \
 				MOD_BGC_Veg_CNPhenology.o                 \
 				MOD_BGC_Veg_NutrientCompetition.o         \
 				MOD_BGC_Veg_CNVegStructUpdate.o           \
-				MOD_BGC_CNSummary.o                       \
 				MOD_BGC_CNAnnualUpdate.o                  \
 				MOD_BGC_CNZeroFluxes.o                    \
 				MOD_BGC_CNBalanceCheck.o                  \
@@ -248,16 +249,20 @@ OBJS_MAIN = \
 				MOD_BGC_Veg_CNNDynamics.o                 \
 				MOD_BGC_Veg_CNFireBase.o                  \
 				MOD_BGC_Veg_CNFireLi2016.o                \
+				MOD_Irrigation.o                          \
 				MOD_BGC_driver.o                          \
 				MOD_Vars_2DForcing.o                      \
 				MOD_UserSpecifiedForcing.o                \
 				MOD_ForcingDownscaling.o                  \
 				MOD_Forcing.o                             \
+				MOD_DA_GRACE.o                            \
+				MOD_DataAssimilation.o                    \
 				MOD_AssimStomataConductance.o             \
 				MOD_PlantHydraulic.o                      \
 				MOD_FrictionVelocity.o                    \
 				MOD_TurbulenceLEddy.o                     \
 				MOD_Ozone.o                               \
+				MOD_CanopyLayerProfile.o                  \
 				MOD_LeafTemperature.o                     \
 				MOD_LeafTemperaturePC.o                   \
 				MOD_SoilThermalParameters.o               \
@@ -273,10 +278,12 @@ OBJS_MAIN = \
 				MOD_NetSolar.o                            \
 				MOD_WetBulb.o                             \
 				MOD_RainSnowTemp.o                        \
+				MOD_SoilSurfaceResistance.o               \
 				MOD_NewSnow.o                             \
 				MOD_Thermal.o                             \
 				MOD_Vars_1DAccFluxes.o                    \
 				MOD_CaMa_Vars.o                           \
+				MOD_HistWriteBack.o                       \
 				MOD_HistGridded.o                         \
 				MOD_HistVector.o                          \
 				MOD_HistSingle.o                          \
@@ -300,6 +307,8 @@ OBJS_MAIN = \
 				MOD_Lulcc_Vars_TimeInvariants.o           \
 				MOD_Lulcc_Vars_TimeVariables.o            \
 				MOD_Lulcc_Initialize.o                    \
+				MOD_Lulcc_TransferTrace.o                 \
+				MOD_Lulcc_MassEnergyConserve.o            \
 				MOD_Lulcc_Driver.o                        \
 				CoLMDRIVER.o                              \
 				CoLMMAIN.o                                \

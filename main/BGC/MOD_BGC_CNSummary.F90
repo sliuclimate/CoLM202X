@@ -18,6 +18,7 @@ module MOD_BGC_CNSummary
   use MOD_Precision
   use MOD_Namelist, only : DEF_USE_NITRIF
   use MOD_Vars_PFTimeInvariants, only: pftclass
+  use MOD_Vars_PFTimeVariables, only :irrig_method_p
   use MOD_BGC_Vars_TimeVariables, only: &
       totlitc, totsomc, totcwdc, decomp_cpools, decomp_cpools_vr, ctrunc_soil,ctrunc_veg, ctrunc_vr, &
       totlitn, totsomn, totcwdn, decomp_npools, decomp_npools_vr, ntrunc_soil,ntrunc_veg, ntrunc_vr, &
@@ -94,6 +95,9 @@ module MOD_BGC_CNSummary
       m_livecrootc_to_fire_p, m_livecrootc_storage_to_fire_p, m_livecrootc_xfer_to_fire_p, &
       m_deadcrootc_to_fire_p, m_deadcrootc_storage_to_fire_p, m_deadcrootc_xfer_to_fire_p, &
       m_gresp_storage_to_fire_p, m_gresp_xfer_to_fire_p
+  use MOD_Vars_TimeVariables, only: &
+      irrig_method_corn  , irrig_method_swheat, irrig_method_wwheat, irrig_method_soybean  , &
+      irrig_method_cotton, irrig_method_rice1 , irrig_method_rice2 , irrig_method_sugarcane
   use MOD_Vars_TimeInvariants, only : patchclass
   use MOD_Vars_Global, only : spval
   use MOD_SPMD_Task
@@ -114,7 +118,7 @@ module MOD_BGC_CNSummary
 
 contains
 
-  subroutine CNDriverSummarizeStates(i,ps,pe,nl_soil,dz_soi,ndecomp_pools)
+  subroutine CNDriverSummarizeStates(i,ps,pe,nl_soil,dz_soi,ndecomp_pools,init)
 
     ! !DESCRIPTION:
     ! summarizes CN state varaibles for veg and soil.
@@ -131,11 +135,12 @@ contains
     integer, intent(in) :: nl_soil           ! number of total soil
     real(r8),intent(in) :: dz_soi(1:nl_soil) ! thicknesses of each soil layer (m)
     integer, intent(in) :: ndecomp_pools     ! number of total soil & litter pools
+    logical, intent(in) :: init
 
     call soilbiogeochem_carbonstate_summary(i,nl_soil,dz_soi,ndecomp_pools)
     call soilbiogeochem_nitrogenstate_summary(i,nl_soil,dz_soi,ndecomp_pools)
 
-    call cnveg_carbonstate_summary(i,ps,pe)
+    call cnveg_carbonstate_summary(i,ps,pe,init)
     call cnveg_nitrogenstate_summary(i,ps,pe)
 
   end subroutine CNDriverSummarizeStates
@@ -271,7 +276,7 @@ contains
 
   end subroutine soilbiogeochem_nitrogenstate_summary
 
-  subroutine cnveg_carbonstate_summary(i,ps,pe)
+  subroutine cnveg_carbonstate_summary(i,ps,pe,init)
 
     ! !DESCRIPTION
     ! summarizes vegetation C state varaibles.
@@ -285,6 +290,7 @@ contains
     integer, intent(in) :: i  ! patch index
     integer, intent(in) :: ps ! start pft index
     integer, intent(in) :: pe ! end pft index
+    logical, intent(in) :: init
 
     integer m
 
@@ -343,69 +349,79 @@ contains
 
 #ifdef CROP
        if(     pftclass(m) .eq. 17 .or. pftclass(m) .eq. 18 .or. pftclass(m) .eq. 63 .or. pftclass(m) .eq. 64)then
-          fertnitro_corn(i) = fertnitro_p(m) 
+          fertnitro_corn        (i) = fertnitro_p   (m) 
+          irrig_method_corn     (i) = irrig_method_p(m)
        else if(pftclass(m) .eq. 19 .or. pftclass(m) .eq. 20)then
-          fertnitro_swheat(i) = fertnitro_p(m)
+          fertnitro_swheat      (i) = fertnitro_p   (m)
+          irrig_method_swheat(i) = irrig_method_p   (m)
        else if(pftclass(m) .eq. 21 .or. pftclass(m) .eq. 22)then
-          fertnitro_wwheat(i) = fertnitro_p(m)
+          fertnitro_wwheat      (i) = fertnitro_p   (m)
+          irrig_method_wwheat   (i) = irrig_method_p(m)
        else if(pftclass(m) .eq. 23 .or. pftclass(m) .eq. 24 .or. pftclass(m) .eq. 77 .or. pftclass(m) .eq. 78)then
-          fertnitro_soybean(i) = fertnitro_p(m)
+          fertnitro_soybean     (i) = fertnitro_p   (m)
+          irrig_method_soybean  (i) = irrig_method_p(m)
        else if(pftclass(m) .eq. 41 .or. pftclass(m) .eq. 42)then
-          fertnitro_cotton(i) = fertnitro_p(m)
+          fertnitro_cotton      (i) = fertnitro_p   (m)
+          irrig_method_cotton   (i) = irrig_method_p(m)
        else if(pftclass(m) .eq. 61 .or. pftclass(m) .eq. 62)then
-          fertnitro_rice1(i) = fertnitro_p(m)
-          fertnitro_rice2(i) = fertnitro_p(m)
+          fertnitro_rice1       (i) = fertnitro_p   (m)
+          fertnitro_rice2       (i) = fertnitro_p   (m)
+          irrig_method_rice1    (i) = irrig_method_p(m)
+          irrig_method_rice2    (i) = irrig_method_p(m)
        else if(pftclass(m) .eq. 67 .or. pftclass(m) .eq. 68)then
-          fertnitro_sugarcane(i) = fertnitro_p(m)
+          fertnitro_sugarcane   (i) = fertnitro_p   (m)
+          irrig_method_sugarcane(i) = irrig_method_p(m)
        end if
 #endif
     end do
 
-    leafc_enftemp              (i) = 0._r8
-    leafc_enfboreal            (i) = 0._r8
-    leafc_dnfboreal            (i) = 0._r8
-    leafc_ebftrop              (i) = 0._r8
-    leafc_ebftemp              (i) = 0._r8
-    leafc_dbftrop              (i) = 0._r8
-    leafc_dbftemp              (i) = 0._r8
-    leafc_dbfboreal            (i) = 0._r8
-    leafc_ebstemp              (i) = 0._r8
-    leafc_dbstemp              (i) = 0._r8
-    leafc_dbsboreal            (i) = 0._r8
-    leafc_c3arcgrass           (i) = 0._r8
-    leafc_c3grass              (i) = 0._r8
-    leafc_c4grass              (i) = 0._r8
-    do m = ps, pe
-       if(pftclass      (m) .eq. 1)then
-          leafc_enftemp   (i) = leafc_p(m)
-       else if(pftclass (m) .eq. 2)then
-          leafc_enfboreal (i) = leafc_p(m)
-       else if(pftclass (m) .eq. 3)then
-          leafc_dnfboreal (i) = leafc_p(m)
-       else if(pftclass (m) .eq. 4)then
-          leafc_ebftrop   (i) = leafc_p(m)
-       else if(pftclass (m) .eq. 5)then
-          leafc_ebftemp   (i) = leafc_p(m)
-       else if(pftclass (m) .eq. 6)then
-          leafc_dbftrop   (i) = leafc_p(m)
-       else if(pftclass (m) .eq. 7)then
-          leafc_dbftemp   (i) = leafc_p(m)
-       else if(pftclass (m) .eq. 8)then
-          leafc_dbfboreal (i) = leafc_p(m)
-       else if(pftclass (m) .eq. 9)then
-          leafc_ebstemp   (i) = leafc_p(m)
-       else if(pftclass (m) .eq. 10)then
-          leafc_dbstemp   (i) = leafc_p(m)
-       else if(pftclass (m) .eq. 11)then
-          leafc_dbsboreal (i) = leafc_p(m)
-       else if(pftclass (m) .eq. 12)then
-          leafc_c3arcgrass(i)= leafc_p(m)
-       else if(pftclass (m) .eq. 13)then
-          leafc_c3grass   (i) = leafc_p(m)
-       else if(pftclass (m) .eq. 14)then
-          leafc_c4grass   (i) = leafc_p(m)
-       end if
-    end do
+    if(.not. init)then
+       leafc_enftemp              (i) = 0._r8
+       leafc_enfboreal            (i) = 0._r8
+       leafc_dnfboreal            (i) = 0._r8
+       leafc_ebftrop              (i) = 0._r8
+       leafc_ebftemp              (i) = 0._r8
+       leafc_dbftrop              (i) = 0._r8
+       leafc_dbftemp              (i) = 0._r8
+       leafc_dbfboreal            (i) = 0._r8
+       leafc_ebstemp              (i) = 0._r8
+       leafc_dbstemp              (i) = 0._r8
+       leafc_dbsboreal            (i) = 0._r8
+       leafc_c3arcgrass           (i) = 0._r8
+       leafc_c3grass              (i) = 0._r8
+       leafc_c4grass              (i) = 0._r8
+       do m = ps, pe
+          if(pftclass      (m) .eq. 1)then
+             leafc_enftemp   (i) = leafc_p(m)
+          else if(pftclass (m) .eq. 2)then
+             leafc_enfboreal (i) = leafc_p(m)
+          else if(pftclass (m) .eq. 3)then
+             leafc_dnfboreal (i) = leafc_p(m)
+          else if(pftclass (m) .eq. 4)then
+             leafc_ebftrop   (i) = leafc_p(m)
+          else if(pftclass (m) .eq. 5)then
+             leafc_ebftemp   (i) = leafc_p(m)
+          else if(pftclass (m) .eq. 6)then
+             leafc_dbftrop   (i) = leafc_p(m)
+          else if(pftclass (m) .eq. 7)then
+             leafc_dbftemp   (i) = leafc_p(m)
+          else if(pftclass (m) .eq. 8)then
+             leafc_dbfboreal (i) = leafc_p(m)
+          else if(pftclass (m) .eq. 9)then
+             leafc_ebstemp   (i) = leafc_p(m)
+          else if(pftclass (m) .eq. 10)then
+             leafc_dbstemp   (i) = leafc_p(m)
+          else if(pftclass (m) .eq. 11)then
+             leafc_dbsboreal (i) = leafc_p(m)
+          else if(pftclass (m) .eq. 12)then
+             leafc_c3arcgrass(i)= leafc_p(m)
+          else if(pftclass (m) .eq. 13)then
+             leafc_c3grass   (i) = leafc_p(m)
+          else if(pftclass (m) .eq. 14)then
+             leafc_c4grass   (i) = leafc_p(m)
+          end if
+       end do
+    end if
     totvegc(i) = sum(totvegc_p(ps:pe)*pftfrac(ps:pe))
     ctrunc_veg(i) = sum(ctrunc_p(ps:pe) *pftfrac(ps:pe))
     totcolc(i) = totvegc(i) + totcwdc(i) + totlitc(i) + totsomc(i) + ctrunc_veg(i) +ctrunc_soil(i)

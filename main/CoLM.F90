@@ -44,11 +44,8 @@ PROGRAM CoLM
    USE MOD_LandUrban
    USE MOD_Urban_LAIReadin
 #endif
-#ifdef LULC_IGBP_PFT
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
    USE MOD_LandPFT
-#endif
-#ifdef LULC_IGBP_PC
-   USE MOD_LandPC
 #endif
 #if (defined UNSTRUCTURED || defined CATCHMENT)
    USE MOD_ElmVector
@@ -63,8 +60,8 @@ PROGRAM CoLM
    USE MOD_SingleSrfdata
 #endif
 
-#if (defined LATERAL_FLOW)
-   USE MOD_Hydro_LateralFlow
+#if (defined CatchLateralFlow)
+   USE MOD_Catch_LateralFlow
 #endif
 
    USE MOD_Ozone, only: init_ozone_data, update_ozone_data
@@ -83,9 +80,21 @@ PROGRAM CoLM
    USE MOD_Lulcc_Driver
 #endif
 
+#ifdef CoLMDEBUG
+   USE MOD_Hydro_SoilWater
+#endif
+
    ! SNICAR
    USE MOD_SnowSnicar, only: SnowAge_init, SnowOptics_init
    USE MOD_Aerosol, only: AerosolDepInit, AerosolDepReadin
+
+#ifdef DataAssimilation
+   USE MOD_DataAssimilation
+#endif
+
+#ifdef USEMPI
+   USE MOD_HistWriteBack
+#endif
 
    IMPLICIT NONE
 
@@ -126,13 +135,23 @@ PROGRAM CoLM
    CALL spmd_init ()
 #endif
 
-   IF (p_is_master) THEN
-      CALL system_clock (start_time)
-   ENDIF
-
    CALL getarg (1, nlfile)
 
    CALL read_namelist (nlfile)
+
+#ifdef USEMPI
+   IF (DEF_HIST_WriteBack) THEN
+      CALL spmd_assign_writeback ()
+   ENDIF
+
+   IF (p_is_writeback) THEN
+      CALL hist_writeback_daemon ()
+   ELSE
+#endif
+
+   IF (p_is_master) THEN
+      CALL system_clock (start_time)
+   ENDIF
 
    casename     = DEF_CASE_NAME
    dir_landdata = DEF_dir_landdata
@@ -142,7 +161,11 @@ PROGRAM CoLM
 
 #ifdef SinglePoint
    fsrfdata = trim(dir_landdata) // '/srfdata.nc'
+#ifndef URBAN_MODEL
    CALL read_surface_data_single (fsrfdata, mksrfdata=.false.)
+#else
+   CALL read_urban_surface_data_single (fsrfdata, mksrfdata=.false., mkrun=.true.)
+#endif
 #endif
 
    deltim    = DEF_simulation_time%timestep
@@ -194,14 +217,9 @@ PROGRAM CoLM
 
    CALL pixelset_load_from_file (dir_landdata, 'landpatch', landpatch, numpatch, lc_year)
 
-#ifdef LULC_IGBP_PFT
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
    CALL pixelset_load_from_file (dir_landdata, 'landpft'  , landpft  , numpft  , lc_year)
    CALL map_patch_to_pft
-#endif
-
-#ifdef LULC_IGBP_PC
-   CALL pixelset_load_from_file (dir_landdata, 'landpc'   , landpc   , numpc   , lc_year)
-   CALL map_patch_to_pc
 #endif
 
 #ifdef URBAN_MODEL
@@ -247,14 +265,14 @@ PROGRAM CoLM
    CALL SnowOptics_init( DEF_file_snowoptics ) ! SNICAR optical parameters
    CALL SnowAge_init( DEF_file_snowaging )     ! SNICAR aging   parameters
 
-   !-----------------------
+   ! ----------------------------------------------------------------------
    doalb = .true.
    dolai = .true.
    dosst = .false.
 
    ! Initialize meteorological forcing data module
    CALL allocate_1D_Forcing ()
-   CALL forcing_init (dir_forcing, deltim, sdate, lc_year)
+   CALL forcing_init (dir_forcing, deltim, ststamp, lc_year, etstamp)
    CALL allocate_2D_Forcing (gforc)
 
    ! Initialize history data module
@@ -280,7 +298,14 @@ PROGRAM CoLM
       CALL init_nitrif_data (sdate)
    ENDIF
 
-   CALL init_ndep_data (sdate(1))
+   IF (DEF_NDEP_FREQUENCY==1)THEN ! Initial annual ndep data readin
+      CALL init_ndep_data_annually (sdate(1))
+   ELSEIF(DEF_NDEP_FREQUENCY==2)THEN ! Initial monthly ndep data readin
+      CALL init_ndep_data_monthly (sdate(1),s_month) ! sf_add
+   ELSE
+      write(6,*) 'ERROR: DEF_NDEP_FREQUENCY should be only 1-2, Current is:',DEF_NDEP_FREQUENCY
+      CALL CoLM_stop ()
+   ENDIF
 
    IF (DEF_USE_FIRE) THEN
       CALL init_fire_data (sdate(1))
@@ -288,8 +313,12 @@ PROGRAM CoLM
    ENDIF
 #endif
 
-#if (defined LATERAL_FLOW)
-   CALL lateral_flow_init ()
+#if (defined CatchLateralFlow)
+   CALL lateral_flow_init (lc_year)
+#endif
+
+#ifdef DataAssimilation
+   CALL init_DataAssimilation ()
 #endif
 
    ! ======================================================================
@@ -320,7 +349,7 @@ PROGRAM CoLM
 
       ! Read in the meteorological forcing
       ! ----------------------------------------------------------------------
-      CALL read_forcing (idate, dir_forcing)
+      CALL read_forcing (jdate, dir_forcing)
 
       IF(DEF_USE_OZONEDATA)THEN
          CALL update_Ozone_data(itstamp, deltim)
@@ -352,8 +381,17 @@ PROGRAM CoLM
          ENDIF
       ENDIF
 
-      IF (jdate(1) /= year_p) THEN
-         CALL update_ndep_data (idate(1), iswrite = .true.)
+      IF (DEF_NDEP_FREQUENCY==1)THEN ! Read Annual Ndep data
+         IF (jdate(1) /= year_p) THEN
+            CALL update_ndep_data_annually (idate(1), iswrite = .true.)
+         ENDIF
+      ELSEIF(DEF_NDEP_FREQUENCY==2)THEN! Read Monthly Ndep data
+         IF (jdate(1) /= year_p .or. month /= month_p) THEN  !sf_add
+            CALL update_ndep_data_monthly (jdate(1), month, iswrite = .true.) !sf_add
+         ENDIF
+      ELSE
+         write(6,*) 'ERROR: DEF_NDEP_FREQUENCY should be only 1-2, Current is:',DEF_NDEP_FREQUENCY
+         CALL CoLM_stop ()
       ENDIF
 
       IF(DEF_USE_FIRE)THEN
@@ -370,6 +408,40 @@ PROGRAM CoLM
          CALL CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oroflag)
       ENDIF
 
+
+#if (defined CatchLateralFlow)
+      CALL lateral_flow (deltim)
+#endif
+
+#if(defined CaMa_Flood)
+      call colm_CaMa_drv(idate(3)) ! run CaMa-Flood
+#endif
+
+#ifdef DataAssimilation
+      CALL do_DataAssimilation (idate, deltim)
+#endif
+
+      ! Write out the model variables for restart run and the histroy file
+      ! ----------------------------------------------------------------------
+      CALL hist_out (idate, deltim, itstamp, etstamp, ptstamp, dir_hist, casename)
+
+      ! DO land USE and land cover change simulation
+      ! ----------------------------------------------------------------------
+#ifdef LULCC
+      IF ( isendofyear(idate, deltim) ) THEN
+         CALL deallocate_1D_Forcing
+         CALL deallocate_1D_Fluxes
+
+         CALL LulccDriver (casename,dir_landdata,dir_restart,&
+                           idate,greenwich)
+
+         CALL allocate_1D_Forcing
+         CALL forcing_init (dir_forcing, deltim, itstamp, jdate(1))
+         CALL deallocate_acc_fluxes
+         CALL hist_init (dir_hist)
+         CALL allocate_1D_Fluxes
+      ENDIF
+#endif
 
       ! Get leaf area index
       ! ----------------------------------------------------------------------
@@ -416,45 +488,23 @@ PROGRAM CoLM
       ENDIF
 #endif
 
-#if (defined LATERAL_FLOW)
-      CALL lateral_flow (deltim)
-#endif
-
-#if(defined CaMa_Flood)
-      call colm_CaMa_drv(idate(3)) ! run CaMa-Flood
-#endif
-
-      ! Write out the model variables for restart run and the histroy file
-      ! ----------------------------------------------------------------------
-      CALL hist_out (idate, deltim, itstamp, etstamp, ptstamp, dir_hist, casename)
-
-#ifdef LULCC
-      ! DO land USE and land cover change simulation
-      IF ( isendofyear(idate, deltim) ) THEN
-         CALL deallocate_1D_Forcing
-         CALL deallocate_1D_Fluxes
-
-         CALL LulccDriver (casename,dir_landdata,dir_restart,&
-                           idate,greenwich)
-
-         CALL allocate_1D_Forcing
-         CALL forcing_init (dir_forcing, deltim, idate, jdate(1))
-         CALL deallocate_acc_fluxes
-         CALL hist_init (dir_hist, DEF_hist_lon_res, DEF_hist_lat_res)
-         CALL allocate_1D_Fluxes
-      ENDIF
-#endif
-
       IF (save_to_restart (idate, deltim, itstamp, ptstamp)) THEN
 #ifdef LULCC
          CALL WRITE_TimeVariables (jdate, jdate(1), casename, dir_restart)
 #else
          CALL WRITE_TimeVariables (jdate, lc_year,  casename, dir_restart)
 #endif
+#if(defined CaMa_Flood)
+      IF (p_is_master) THEN
+            call colm_cama_write_restart (jdate, lc_year,  casename, dir_restart)
+         ENDIF
+#endif
       ENDIF
-
 #ifdef RangeCheck
       CALL check_TimeVariables ()
+#endif
+#ifdef CoLMDEBUG
+      CALL print_VSF_iteration_stat_info ()
 #endif
 
 #ifdef USEMPI
@@ -476,7 +526,9 @@ PROGRAM CoLM
       IF ((spinup_repeat > 1) .and. (ptstamp <= itstamp)) THEN
          spinup_repeat = spinup_repeat - 1
          idate   = sdate
+         jdate   = sdate
          itstamp = ststamp
+         CALL adj2begin(jdate)
          CALL forcing_reset ()
       ENDIF
 
@@ -489,11 +541,12 @@ PROGRAM CoLM
    CALL deallocate_1D_Forcing     ()
    CALL deallocate_1D_Fluxes      ()
 
-#if (defined LATERAL_FLOW)
+#if (defined CatchLateralFlow)
    CALL lateral_flow_final ()
 #endif
 
-   CALL hist_final ()
+   CALL forcing_final ()
+   CALL hist_final    ()
 
 #ifdef SinglePoint
    CALL single_srfdata_final ()
@@ -507,6 +560,10 @@ PROGRAM CoLM
    CALL colm_cama_exit ! finalize CaMa-Flood
 #endif
 
+#ifdef DataAssimilation
+   CALL final_DataAssimilation ()
+#endif
+
    IF (p_is_master) THEN
       write(*,'(/,A25)') 'CoLM Execution Completed.'
    ENDIF
@@ -518,9 +575,14 @@ PROGRAM CoLM
    103 format(/, 'Time elapsed : ', I3, ' seconds.')
 
 #ifdef USEMPI
+   ENDIF
+
+   IF (DEF_HIST_WriteBack) THEN
+      CALL hist_writeback_exit ()
+   ENDIF
+
    CALL spmd_exit
 #endif
 
 END PROGRAM CoLM
-! ----------------------------------------------------------------------
-! EOP
+! ---------- EOP ------------

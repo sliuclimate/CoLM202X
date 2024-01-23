@@ -21,7 +21,7 @@ CONTAINS
         froof          ,fgper          ,flake          ,bsw            ,&
         porsl          ,psi0           ,hksati         ,wtfact         ,&
         pondmx         ,ssi            ,wimp           ,smpmin         ,&
-        rootr          ,etr            ,fseng          ,fgrnd          ,&
+        rootr,rootflux ,etr            ,fseng          ,fgrnd          ,&
         t_gpersno      ,t_lakesno      ,t_lake         ,dz_lake        ,&
         z_gpersno      ,z_lakesno      ,zi_gpersno     ,zi_lakesno     ,&
         dz_roofsno     ,dz_gimpsno     ,dz_gpersno     ,dz_lakesno     ,&
@@ -66,7 +66,7 @@ CONTAINS
 !-----------------------Argument----------------------------------------
   INTEGER, intent(in) :: &
         ipatch           ,&! patch index
-        patchtype        ,&! land water TYPE (0=soil, 1=urban or built-up, 2=wetland,
+        patchtype        ,&! land patch type (0=soil, 1=urban or built-up, 2=wetland,
                            ! 3=land ice, 4=land water bodies, 99=ocean
         lbr              ,&! lower bound of array
         lbi              ,&! lower bound of array
@@ -121,9 +121,11 @@ CONTAINS
         sm_gper          ,&! snow melt (mm h2o/s)
         w_old              ! liquid water mass of the column at the previous time step (mm)
 
+  REAL(r8), intent(inout) :: rootflux(1:nl_soil)
+
 #if(defined CaMa_Flood)
   real(r8), INTENT(inout) :: flddepth  ! inundation water depth [mm]
-  real(r8), INTENT(in)    :: fldfrc    ! inundation water depth   [0-1]
+  real(r8), INTENT(in)    :: fldfrc    ! inundation water depth [0-1]
   real(r8), INTENT(out)   :: qinfl_fld ! grid averaged inundation water input from top (mm/s)
 #endif
 
@@ -218,13 +220,20 @@ CONTAINS
 !=======================================================================
 ! [1] for pervious road, the same as soil
 !=======================================================================
-
-      CALL WATER ( ipatch,patchtype   ,lbp         ,nl_soil   ,deltim    ,&
+      rootflux(:) = rootr(:)*etr
+      CALL WATER_2014 (ipatch,patchtype, lbp       ,nl_soil   ,deltim    ,&
              z_gpersno   ,dz_gpersno  ,zi_gpersno  ,&
-             bsw         ,porsl       ,psi0        ,hksati    ,rootr     ,&
+             bsw         ,porsl       ,psi0        ,hksati,rootr,rootflux,&
              t_gpersno   ,wliq_gpersno,wice_gpersno,smp,hk,pgper_rain,sm_gper,&
              etr         ,qseva_gper  ,qsdew_gper  ,qsubl_gper,qfros_gper,&
-             rsur_gper   ,rnof_gper   ,qinfl       ,wtfact    ,pondmx    ,&
+             !NOTE: temporal input, as urban mode doesn't support split soil&snow
+             ! set all the same for soil and snow surface,
+             ! and fsno=0. (no physical meaning here)
+             qseva_gper  ,qsdew_gper  ,qsubl_gper,qfros_gper,&
+             qseva_gper  ,qsdew_gper  ,qsubl_gper,qfros_gper,&
+             0.          ,& ! fsno, not active
+             rsur_gper   ,&
+             rnof_gper   ,qinfl       ,wtfact    ,pondmx    ,&
              ssi         ,wimp        ,smpmin      ,zwt       ,wa        ,&
              qcharge     ,errw_rsub                                       &
 #if(defined CaMa_Flood)
@@ -317,6 +326,7 @@ CONTAINS
            ! ---------------------------
            z_lakesno    ,dz_lakesno   ,zi_lakesno      ,t_lakesno       ,&
            wice_lakesno ,wliq_lakesno ,t_lake          ,lake_icefrac    ,&
+           gwat         ,                                                &
            dfseng       ,dfgrnd       ,snll            ,scv_lake        ,&
            snowdp_lake  ,sm_lake      ,forc_us         ,forc_vs          &
 ! SNICAR model variables

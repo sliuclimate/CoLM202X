@@ -32,19 +32,17 @@ CONTAINS
       CHARACTER(len=256) :: file_in, file_out, fileblock
       INTEGER :: iproc, iblk, jblk, ie, ipxl, ilon, ilat, i1
       INTEGER :: nelm_in, nelm_out
-      INTEGER, allocatable :: nelm_blk(:,:), IOproc(:,:)
-      INTEGER, allocatable :: elmindex(:), elmnpxl(:), elmpixels(:,:,:)
+      INTEGER,   allocatable :: nelm_blk(:,:), IOproc(:,:)
+      INTEGER*8, allocatable :: elmindex(:)
+      INTEGER,   allocatable :: elmnpxl(:), elmpixels(:,:,:)
 
       LOGICAL, allocatable :: elmmask  (:)
       LOGICAL, allocatable :: patchmask(:)
 #ifdef CATCHMENT
       LOGICAL, allocatable :: hrumask  (:)
 #endif
-#ifdef LULC_IGBP_PFT
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
       LOGICAL, allocatable :: pftmask  (:)
-#endif
-#ifdef LULC_IGBP_PC
-      LOGICAL, allocatable :: pcmask   (:)
 #endif
 
       INTEGER :: month, YY, itime, Julian_day, nsl
@@ -186,13 +184,9 @@ CONTAINS
 #ifdef CATCHMENT
                   CALL clip_pixelset (dir_landdata_in, 'landhru'  , iblk, jblk, elmmask, elmindex, hrumask  )
 #endif
-#ifdef LULC_IGBP_PFT
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
                   CALL clip_pixelset (dir_landdata_in, 'landpft'  , iblk, jblk, elmmask, elmindex, pftmask  )
 #endif
-#ifdef LULC_IGBP_PC
-                  CALL clip_pixelset (dir_landdata_in, 'landpc'   , iblk, jblk, elmmask, elmindex, pcmask   )
-#endif
-
                   CALL system('mkdir -p ' // trim(dir_landdata_out) // '/mesh')
                   file_in  = trim(dir_landdata_in)  // '/mesh/mesh.nc'
                   file_out = trim(dir_landdata_out) // '/mesh/mesh.nc'
@@ -234,7 +228,7 @@ CONTAINS
                   CALL clip_vector (file_in, file_out, iblk, jblk, 'patchfrac_hru', patchmask)
 #endif
 
-#ifdef LULC_IGBP_PFT
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
                   CALL system('mkdir -p ' // trim(dir_landdata_out) // '/landpft')
                   file_in  = trim(dir_landdata_in)  // '/landpft/landpft.nc'
                   file_out = trim(dir_landdata_out) // '/landpft/landpft.nc'
@@ -242,16 +236,6 @@ CONTAINS
                   CALL clip_vector (file_in, file_out, iblk, jblk, 'ipxstt', pftmask)
                   CALL clip_vector (file_in, file_out, iblk, jblk, 'ipxend', pftmask)
                   CALL clip_vector (file_in, file_out, iblk, jblk, 'settyp', pftmask)
-#endif
-
-#ifdef LULC_IGBP_PC
-                  CALL system('mkdir -p ' // trim(dir_landdata_out) // '/landpc')
-                  file_in  = trim(dir_landdata_in)  // '/landpc/landpc.nc'
-                  file_out = trim(dir_landdata_out) // '/landpc/landpc.nc'
-                  CALL clip_vector (file_in, file_out, iblk, jblk, 'eindex', pcmask)
-                  CALL clip_vector (file_in, file_out, iblk, jblk, 'ipxstt', pcmask)
-                  CALL clip_vector (file_in, file_out, iblk, jblk, 'ipxend', pcmask)
-                  CALL clip_vector (file_in, file_out, iblk, jblk, 'settyp', pcmask)
 #endif
                ENDIF
 
@@ -298,7 +282,7 @@ CONTAINS
                   ENDDO
                ENDIF
 
-#ifdef LULC_IGBP_PFT
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
                DO month = 1, 12
                   write(c2,'(i2.2)') month
 
@@ -309,20 +293,6 @@ CONTAINS
                   file_in  = trim(dir_landdata_in)  // '/LAI/SAI_pfts' // trim(c2) // '.nc'
                   file_out = trim(dir_landdata_out) // '/LAI/SAI_pfts' // trim(c2) // '.nc'
                   CALL clip_vector (file_in, file_out, iblk, jblk, 'SAI_pfts', pftmask)
-               ENDDO
-#endif
-
-#ifdef LULC_IGBP_PC
-               DO month = 1, 12
-                  write(c2,'(i2.2)') month
-
-                  file_in  = trim(dir_landdata_in)  // '/LAI/LAI_pcs' // trim(c2) // '.nc'
-                  file_out = trim(dir_landdata_out) // '/LAI/LAI_pcs' // trim(c2) // '.nc'
-                  CALL clip_vector (file_in, file_out, iblk, jblk, 'LAI_pcs', pcmask)
-
-                  file_in  = trim(dir_landdata_in)  // '/LAI/SAI_pcs' // trim(c2) // '.nc'
-                  file_out = trim(dir_landdata_out) // '/LAI/SAI_pcs' // trim(c2) // '.nc'
-                  CALL clip_vector (file_in, file_out, iblk, jblk, 'SAI_pcs', pcmask)
                ENDDO
 #endif
 
@@ -339,15 +309,10 @@ CONTAINS
                file_in  = trim(dir_landdata_in)  // '/htop/htop_patches.nc'
                file_out = trim(dir_landdata_out) // '/htop/htop_patches.nc'
                CALL clip_vector (file_in, file_out, iblk, jblk, 'htop_patches', patchmask)
-#ifdef LULC_IGBP_PFT
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
                file_in  = trim(dir_landdata_in)  // '/htop/htop_pfts.nc'
                file_out = trim(dir_landdata_out) // '/htop/htop_pfts.nc'
                CALL clip_vector (file_in, file_out, iblk, jblk, 'htop_pfts', pftmask)
-#endif
-#ifdef LULC_IGBP_PC
-               file_in  = trim(dir_landdata_in)  // '/htop/htop_pcs.nc'
-               file_out = trim(dir_landdata_out) // '/htop/htop_pcs.nc'
-               CALL clip_vector (file_in, file_out, iblk, jblk, 'htop_pcs', pcmask)
 #endif
 
                ! lake depth
@@ -358,7 +323,7 @@ CONTAINS
 
                ! plant function type percentage
                CALL system('mkdir -p ' // trim(dir_landdata_out) // '/pctpft')
-#ifdef LULC_IGBP_PFT
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
                file_in  = trim(dir_landdata_in)  // '/pctpft/pct_pfts.nc'
                file_out = trim(dir_landdata_out) // '/pctpft/pct_pfts.nc'
                CALL clip_vector (file_in, file_out, iblk, jblk, 'pct_pfts', pftmask)
@@ -367,11 +332,6 @@ CONTAINS
                file_out = trim(dir_landdata_out) // '/pctpft/pct_crops.nc'
                CALL clip_vector (file_in, file_out, iblk, jblk, 'pct_crops', patchmask)
 #endif
-#endif
-#ifdef LULC_IGBP_PC
-               file_in  = trim(dir_landdata_in)  // '/pctpft/pct_pcs.nc'
-               file_out = trim(dir_landdata_out) // '/pctpft/pct_pcs.nc'
-               CALL clip_vector (file_in, file_out, iblk, jblk, 'pct_pcs', pcmask)
 #endif
 
                ! soil
@@ -574,11 +534,8 @@ CONTAINS
 #ifdef CATCHMENT
       IF (allocated(hrumask  )) deallocate(hrumask  )
 #endif
-#ifdef LULC_IGBP_PFT
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
       IF (allocated(pftmask  )) deallocate(pftmask  )
-#endif
-#ifdef LULC_IGBP_PC
-      IF (allocated(pcmask   )) deallocate(pcmask   )
 #endif
 
    END SUBROUTINE srfdata_region_clip
@@ -595,7 +552,8 @@ CONTAINS
       CHARACTER(len=*), intent(in) :: psetname
       INTEGER, intent(in) :: iblk, jblk
       LOGICAL, intent(in) :: elmmask (:)
-      INTEGER, intent(in) :: elmindex(:)
+
+      INTEGER*8, intent(in) :: elmindex(:)
 
       LOGICAL, allocatable, intent(out) :: psetmask (:)
 
@@ -603,7 +561,7 @@ CONTAINS
       CHARACTER(len=256) :: filename, fileblock
       LOGICAL :: fexists
       INTEGER :: nset, ie, iset
-      INTEGER, allocatable :: eindex_p(:)
+      INTEGER*8, allocatable :: eindex_p(:)
 
       filename = trim(dir_landdata_in) // '/' // trim(psetname) // '/' // trim(psetname) // '.nc'
       CALL get_filename_block (filename, iblk, jblk, fileblock)
@@ -662,6 +620,9 @@ CONTAINS
       INTEGER, allocatable :: data_i4_out1 (:)
       INTEGER, allocatable :: data_i4_out2 (:,:)
       INTEGER, allocatable :: data_i4_out3 (:,:,:)
+      
+      INTEGER*8, allocatable :: data_i8_in1  (:)
+      INTEGER*8, allocatable :: data_i8_out1 (:)
 
       REAL(r8), allocatable :: data_r8_in1 (:)
       REAL(r8), allocatable :: data_r8_in2 (:,:)
@@ -749,6 +710,16 @@ CONTAINS
 
             deallocate (data_i4_in1 )
             deallocate (data_i4_out1)
+         elseif (xtype == NF90_INT64) THEN
+            allocate (data_i8_in1 (vlen_in))
+            CALL nccheck( nf90_get_var (ncidin,  varidin , data_i8_in1) )
+
+            allocate (data_i8_out1 (vlen_out))
+            data_i8_out1 = pack(data_i8_in1, vecmask)
+            CALL nccheck( nf90_put_var (ncidout, varidout, data_i8_out1) )
+
+            deallocate (data_i8_in1 )
+            deallocate (data_i8_out1)
          elseif (xtype == NF90_DOUBLE) THEN
             allocate (data_r8_in1 (vlen_in))
             CALL nccheck( nf90_get_var (ncidin,  varidin , data_r8_in1) )

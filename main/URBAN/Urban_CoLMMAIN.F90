@@ -35,8 +35,9 @@ SUBROUTINE UrbanCoLMMAIN ( &
            htop         ,hbot         ,sqrtdi       ,chil         ,&
            effcon       ,vmax25       ,slti         ,hlti         ,&
            shti         ,hhti         ,trda         ,trdm         ,&
-           trop         ,gradm        ,binter       ,extkn        ,&
-           rho          ,tau          ,rootfr                     ,&
+           trop         ,g1           ,g0           ,gradm        ,&
+           binter       ,extkn        ,rho          ,tau          ,&
+           rootfr                     ,&
 
          ! atmospheric forcing
            forc_pco2m   ,forc_po2m    ,forc_us      ,forc_vs      ,&
@@ -86,7 +87,7 @@ SUBROUTINE UrbanCoLMMAIN ( &
            flddepth,     fldfrc,      fevpg_fld,     qinfl_fld,    &
 #endif
          ! additional diagnostic variables for output
-           laisun       ,laisha                                   ,&
+           laisun       ,laisha       ,rss                        ,&
            rstfac       ,h2osoi       ,wat                        ,&
 
          ! FLUXES
@@ -146,7 +147,7 @@ SUBROUTINE UrbanCoLMMAIN ( &
         ipatch     ,&! maximum number of snow layers
         idate(3)   ,&! next time-step /year/julian day/second in a day/
         patchclass ,&! land cover type of USGS classification or others
-        patchtype    ! land water type (0=soil, 1=urban and built-up,
+        patchtype    ! land patch type (0=soil, 1=urban and built-up,
                      ! 2=wetland, 3=land ice, 4=land water bodies, 99 = ocean)
 
   REAL(r8),intent(in) :: &
@@ -233,6 +234,8 @@ SUBROUTINE UrbanCoLMMAIN ( &
         trda       ,&! temperature coefficient in gs-a model             [s5]
         trdm       ,&! temperature coefficient in gs-a model             [s6]
         trop       ,&! temperature coefficient in gs-a model
+        g1         ,&! conductance-photosynthesis slope parameter for medlyn model
+        g0         ,&! conductance-photosynthesis intercept for medlyn model
         gradm      ,&! conductance-photosynthesis slope parameter
         binter     ,&! conductance-photosynthesis intercep
         extkn      ,&! coefficient of leaf nitrogen allocation
@@ -418,6 +421,7 @@ SUBROUTINE UrbanCoLMMAIN ( &
         laisun     ,&! sunlit leaf area index
         laisha     ,&! shaded leaf area index
         rstfac     ,&! factor of soil water stress
+        rss        ,&! soil surface resistance
         wat        ,&! total water storage
         h2osoi(nl_soil)! volumetric soil water in layers [m3/m3]
 
@@ -544,10 +548,10 @@ SUBROUTINE UrbanCoLMMAIN ( &
         qfros_gimp ,&! surface dew added to snow pack (mm h2o /s) [+]
         qfros_gper ,&! surface dew added to snow pack (mm h2o /s) [+]
         qfros_lake ,&! surface dew added to snow pack (mm h2o /s) [+]
-        scvold_roof,&! snow cover for previous time step [mm]
-        scvold_gimp,&! snow cover for previous time step [mm]
-        scvold_gper,&! snow cover for previous time step [mm]
-        scvold_lake,&! snow cover for previous time step [mm]
+        scvold_roof,&! snow mass on roof for previous time step [kg/m2]
+        scvold_gimp,&! snow mass on impervious surfaces for previous time step [kg/m2]
+        scvold_gper,&! snow mass on pervious surfaces for previous time step [kg/m2]
+        scvold_lake,&! snow mass on lake for previous time step [kg/m2]
         sm_roof    ,&! rate of snowmelt [kg/(m2 s)]
         sm_gimp    ,&! rate of snowmelt [kg/(m2 s)]
         sm_gper    ,&! rate of snowmelt [kg/(m2 s)]
@@ -558,6 +562,7 @@ SUBROUTINE UrbanCoLMMAIN ( &
         totwb_gper ,&! water mass at the begining of time step
         wt         ,&! fraction of vegetation buried (covered) by snow [-]
         rootr(1:nl_soil),&! root resistance of a layer, all layers add to 1.0
+        rootflux(1:nl_soil),&! root resistance of a layer, all layers add to 1.0
 
         zi_wall   (       0:nl_wall) ,&! interface level below a "z" level [m]
         z_roofsno (maxsnl+1:nl_roof) ,&! layer depth [m]
@@ -631,7 +636,7 @@ SUBROUTINE UrbanCoLMMAIN ( &
 !      and precipitation information (rain/snow fall and precip temperature
 !======================================================================
 
-      CALL netsolar_urban (ipatch,idate,deltim,patchlonr,&
+      CALL netsolar_urban (ipatch,idate,patchlonr,deltim,&
                            forc_sols,forc_soll,forc_solsd,forc_solld,lai,sai,rho,tau,&
                            alb(:,:),ssun(:,:),ssha(:,:),sroof(:,:),swsun(:,:),&
                            swsha(:,:),sgimp(:,:),sgper(:,:),slake(:,:),&
@@ -694,11 +699,11 @@ SUBROUTINE UrbanCoLMMAIN ( &
          zi_roofsno(j) = zi_roofsno(j-1) + dz_roofsno(j)
       ENDDO
 
-      totwb_roof = scv_roof + wice_roofsno(1)+wliq_roofsno(1)
+      totwb_roof = scv_roof + wice_roofsno(1) + wliq_roofsno(1)
       fioldr(:) = 0.0
       IF (snlr < 0) THEN
          fioldr(snlr+1:0) = wice_roofsno(snlr+1:0) / &
-            (wliq_roofsno(snlr+1:0)+wice_roofsno(snlr+1:0))
+            (wliq_roofsno(snlr+1:0) + wice_roofsno(snlr+1:0))
       ENDIF
 
       !============================================================
@@ -718,11 +723,11 @@ SUBROUTINE UrbanCoLMMAIN ( &
 
       zi_gimpsno(1:nl_soil) = zi_soi(1:nl_soil)
 
-      totwb_gimp = scv_gimp + wice_gimpsno(1)+wliq_gimpsno(1)
+      totwb_gimp = scv_gimp + wice_gimpsno(1) + wliq_gimpsno(1)
       fioldi(:) = 0.0
       IF (snli < 0) THEN
          fioldi(snli+1:0) = wice_gimpsno(snli+1:0) / &
-            (wliq_gimpsno(snli+1:0)+wice_gimpsno(snli+1:0))
+            (wliq_gimpsno(snli+1:0) + wice_gimpsno(snli+1:0))
       ENDIF
 
       !============================================================
@@ -742,11 +747,11 @@ SUBROUTINE UrbanCoLMMAIN ( &
 
       zi_gpersno(1:nl_soil) = zi_soi(1:nl_soil)
 
-      totwb_gper = ldew + scv_gper + sum(wice_gpersno(1:)+wliq_gpersno(1:)) + wa
+      totwb_gper = ldew + scv_gper + sum(wice_gpersno(1:) + wliq_gpersno(1:)) + wa
       fioldp(:) = 0.0
       IF (snlp < 0) THEN
          fioldp(snlp+1:0) = wice_gpersno(snlp+1:0) / &
-            (wliq_gpersno(snlp+1:0)+wice_gpersno(snlp+1:0))
+            (wliq_gpersno(snlp+1:0) + wice_gpersno(snlp+1:0))
       ENDIF
 
       !============================================================
@@ -754,7 +759,7 @@ SUBROUTINE UrbanCoLMMAIN ( &
 
       snll = 0
       DO j = maxsnl+1, 0
-         IF (wliq_lakesno(j)+wice_lakesno(j) > 0.) snll = snll - 1
+         IF (wliq_lakesno(j) + wice_lakesno(j) > 0.) snll = snll - 1
       ENDDO
 
       zi_lakesno(0) = 0.
@@ -770,11 +775,11 @@ SUBROUTINE UrbanCoLMMAIN ( &
       fioldl(:) = 0.0
       IF (snll <0 ) THEN
          fioldl(snll+1:0) = wice_lakesno(snll+1:0) / &
-            (wliq_lakesno(snll+1:0)+wice_lakesno(snll+1:0))
+            (wliq_lakesno(snll+1:0) + wice_lakesno(snll+1:0))
       ENDIF
 
       !============================================================
-      totwb  = sum(wice_soisno(1:)+wliq_soisno(1:))
+      totwb  = sum(wice_soisno(1:) + wliq_soisno(1:))
       totwb  = totwb + scv + ldew*fveg + wa*(1-froof)*fgper
 
 !----------------------------------------------------------------------
@@ -913,7 +918,8 @@ SUBROUTINE UrbanCoLMMAIN ( &
          dewmx                ,sqrtdi               ,rootfr(:)            ,effcon               ,&
          vmax25               ,slti                 ,hlti                 ,shti                 ,&
          hhti                 ,trda                 ,trdm                 ,trop                 ,&
-         gradm                ,binter               ,extkn                                      ,&
+         g1                   ,g0                   ,gradm                ,binter               ,&
+         extkn                                      ,&
          ! surface status
          fsno_roof            ,fsno_gimp            ,fsno_gper            ,scv_roof             ,&
          scv_gimp             ,scv_gper             ,scv_lake             ,snowdp_roof          ,&
@@ -954,10 +960,10 @@ SUBROUTINE UrbanCoLMMAIN ( &
          hpbl                                                                                    )
 
 !----------------------------------------------------------------------
-! [4] Urban hydrology
+! [5] Urban hydrology
 !----------------------------------------------------------------------
       IF (fveg > 0) THEN
-         ! covert to unit area
+         ! convert to unit area
          etrgper = etr/(1-froof)/fgper
       ELSE
          etrgper = 0.
@@ -973,7 +979,7 @@ SUBROUTINE UrbanCoLMMAIN ( &
         froof                ,fgper                ,flake                ,bsw                  ,&
         porsl                ,psi0                 ,hksati               ,wtfact               ,&
         pondmx               ,ssi                  ,wimp                 ,smpmin               ,&
-        rootr                ,etrgper              ,fseng                ,fgrnd                ,&
+        rootr,rootflux       ,etrgper              ,fseng                ,fgrnd                ,&
         t_gpersno(lbp:)      ,t_lakesno(:)         ,t_lake               ,dz_lake              ,&
         z_gpersno(lbp:)      ,z_lakesno(:)         ,zi_gpersno(lbp-1:)   ,zi_lakesno(:)        ,&
         dz_roofsno(lbr:)     ,dz_gimpsno(lbi:)     ,dz_gpersno(lbp:)     ,dz_lakesno(:)        ,&
@@ -1153,9 +1159,9 @@ SUBROUTINE UrbanCoLMMAIN ( &
       scv = scv_roof*froof + scv_gper*(1-froof)*fgper + scv_gimp*(1-froof)*(1-fgper)
       !scv = scv*(1-flake) + scv_lake*flake
 
-      endwb  = sum(wice_soisno(1:)+wliq_soisno(1:))
+      endwb  = sum(wice_soisno(1:) + wliq_soisno(1:))
       endwb  = endwb + scv + ldew*fveg + wa*(1-froof)*fgper
-      errorw = (endwb-totwb) - (forc_prc+forc_prl-fevpa-rnof-errw_rsub)*deltim
+      errorw = (endwb - totwb) - (forc_prc + forc_prl - fevpa - rnof - errw_rsub)*deltim
       xerr   = errorw/deltim
 
 #if(defined CoLMDEBUG)

@@ -69,7 +69,8 @@ MODULE MOD_Pixelset
 
       INTEGER :: nset
 
-      INTEGER, allocatable :: eindex(:)
+      INTEGER*8, allocatable :: eindex(:)
+
       INTEGER, allocatable :: ipxstt(:)
       INTEGER, allocatable :: ipxend(:)
       INTEGER, allocatable :: settyp(:)
@@ -80,7 +81,13 @@ MODULE MOD_Pixelset
       INTEGER, allocatable :: xblkgrp (:)
       INTEGER, allocatable :: yblkgrp (:)
 
+      INTEGER :: nblkall
+      INTEGER, allocatable :: xblkall (:)
+      INTEGER, allocatable :: yblkall (:)
+
       TYPE(vec_gather_scatter_type) :: vecgs
+
+      integer, allocatable :: vlenall(:,:)
 
    CONTAINS
       procedure, PUBLIC :: set_vecgs         => vec_gather_scatter_set
@@ -253,6 +260,11 @@ CONTAINS
       IF (allocated(this%xblkgrp)) deallocate(this%xblkgrp)
       IF (allocated(this%yblkgrp)) deallocate(this%yblkgrp)
 
+      IF (allocated(this%xblkall)) deallocate(this%xblkall)
+      IF (allocated(this%yblkall)) deallocate(this%yblkall)
+
+      IF (allocated(this%vlenall)) deallocate(this%vlenall)
+
    END SUBROUTINE pixelset_free_mem
 
    ! --------------------------------
@@ -262,17 +274,23 @@ CONTAINS
 
       class(pixelset_type) :: this
 
-      IF (allocated(this%eindex)) deallocate(this%eindex)
-      IF (allocated(this%ipxstt)) deallocate(this%ipxstt)
-      IF (allocated(this%ipxend)) deallocate(this%ipxend)
-      IF (allocated(this%settyp)) deallocate(this%settyp)
+      IF (allocated(this%eindex )) deallocate(this%eindex )
+      IF (allocated(this%ipxstt )) deallocate(this%ipxstt )
+      IF (allocated(this%ipxend )) deallocate(this%ipxend )
+      IF (allocated(this%settyp )) deallocate(this%settyp )
 
-      IF (allocated(this%ielm  )) deallocate(this%ielm  )
+      IF (allocated(this%ielm   )) deallocate(this%ielm   )
 
       IF (allocated(this%xblkgrp)) deallocate(this%xblkgrp)
       IF (allocated(this%yblkgrp)) deallocate(this%yblkgrp)
+      
+      IF (allocated(this%xblkall)) deallocate(this%xblkall)
+      IF (allocated(this%yblkall)) deallocate(this%yblkall)
+      
+      IF (allocated(this%vlenall)) deallocate(this%vlenall)
 
    END SUBROUTINE pixelset_forc_free_mem
+
    ! --------------------------------
    SUBROUTINE copy_pixelset(pixel_from, pixel_to)
       IMPLICIT NONE
@@ -280,15 +298,22 @@ CONTAINS
       TYPE(pixelset_type), intent(in)  :: pixel_from
       TYPE(pixelset_type), intent(out) :: pixel_to
 
-      pixel_to%eindex = pixel_from%eindex
-      pixel_to%ipxstt = pixel_from%ipxstt
-      pixel_to%ipxend = pixel_from%ipxend
-      pixel_to%ielm   = pixel_from%ielm
+      pixel_to%nset    = pixel_from%nset
+      pixel_to%eindex  = pixel_from%eindex
+      pixel_to%ipxstt  = pixel_from%ipxstt
+      pixel_to%ipxend  = pixel_from%ipxend
+      pixel_to%settyp  = pixel_from%settyp
+      pixel_to%ielm    = pixel_from%ielm
 
-      pixel_to%nset   = pixel_from%nset
-      pixel_to%nblkgrp= pixel_from%nblkgrp
-      pixel_to%xblkgrp= pixel_from%xblkgrp
-      pixel_to%yblkgrp= pixel_from%yblkgrp
+      pixel_to%nblkgrp = pixel_from%nblkgrp
+      pixel_to%xblkgrp = pixel_from%xblkgrp
+      pixel_to%yblkgrp = pixel_from%yblkgrp
+      
+      pixel_to%nblkall = pixel_from%nblkall
+      pixel_to%xblkall = pixel_from%xblkall
+      pixel_to%yblkall = pixel_from%yblkall
+
+      pixel_to%vlenall = pixel_from%vlenall
 
    END SUBROUTINE
    ! --------------------------------
@@ -303,7 +328,7 @@ CONTAINS
 
       ! Local variables
       INTEGER :: iproc
-      INTEGER :: iset, ie, xblk, yblk, iblk, jblk, scnt, iblkgrp
+      INTEGER :: iset, ie, xblk, yblk, iblk, jblk, scnt, iblkgrp, iblkall
       LOGICAL, allocatable :: nonzero(:,:)
 
 #ifdef USEMPI
@@ -420,6 +445,40 @@ CONTAINS
          deallocate(nonzero)
       ENDIF
 
+      IF (p_is_io) THEN
+      
+         IF (.not. allocated(this%vlenall)) THEN
+            allocate (this%vlenall(gblock%nxblk,gblock%nyblk))
+         ENDIF
+
+         this%vlenall = this%vecgs%vlen
+#ifdef USEMPI
+         CALL mpi_allreduce (MPI_IN_PLACE, this%vlenall, gblock%nxblk * gblock%nyblk, &
+            MPI_INTEGER, MPI_SUM, p_comm_io, p_err)
+#endif
+
+
+         this%nblkall = count(this%vlenall > 0)
+
+         IF (allocated(this%xblkall)) deallocate(this%xblkall)
+         IF (allocated(this%yblkall)) deallocate(this%yblkall)
+
+         allocate (this%xblkall (this%nblkall))
+         allocate (this%yblkall (this%nblkall))
+
+         iblkall = 0
+         DO jblk = 1, gblock%nyblk
+            DO iblk = 1, gblock%nxblk
+               IF (this%vlenall(iblk,jblk) > 0) THEN
+                  iblkall = iblkall + 1
+                  this%xblkall(iblkall) = iblk
+                  this%yblkall(iblkall) = jblk
+               ENDIF
+            ENDDO
+         ENDDO
+
+      ENDIF
+
    END SUBROUTINE vec_gather_scatter_set
 
    ! --------------------------------
@@ -431,11 +490,11 @@ CONTAINS
       LOGICAL, intent(in)  :: mask(:)
       INTEGER, intent(out) :: nset_packed
 
-      INTEGER, allocatable :: eindex1(:)
-      INTEGER, allocatable :: ipxstt1(:)
-      INTEGER, allocatable :: ipxend1(:)
-      INTEGER, allocatable :: settyp1(:)
-      INTEGER, allocatable :: ielm1  (:)
+      INTEGER*8, allocatable :: eindex1(:)
+      INTEGER,   allocatable :: ipxstt1(:)
+      INTEGER,   allocatable :: ipxend1(:)
+      INTEGER,   allocatable :: settyp1(:)
+      INTEGER,   allocatable :: ielm1  (:)
 
       IF (p_is_worker) THEN
 
@@ -510,7 +569,7 @@ CONTAINS
    END SUBROUTINE vec_gather_scatter_free_mem
 
    ! --------------------------------
-   SUBROUTINE subset_build (this, superset, subset, use_frac, shadowfrac)
+   SUBROUTINE subset_build (this, superset, subset, use_frac, sharedfrac)
 
       USE MOD_Mesh
       USE MOD_Pixel
@@ -522,7 +581,7 @@ CONTAINS
       TYPE (pixelset_type), intent(in) :: superset
       TYPE (pixelset_type), intent(in) :: subset
       LOGICAL, intent(in) :: use_frac
-      REAL(r8), intent(in), optional :: shadowfrac (:)
+      REAL(r8), intent(in), optional :: sharedfrac (:)
 
       ! Local Variables
       INTEGER :: isuperset, isubset, ielm, ipxl, istt, iend
@@ -576,8 +635,8 @@ CONTAINS
                   pixel%lon_w(mesh(ielm)%ilon(ipxl)), &
                   pixel%lon_e(mesh(ielm)%ilon(ipxl)) )
             ENDDO
-            IF (present(shadowfrac)) THEN
-               this%subfrc(isubset) = this%subfrc(isubset) * shadowfrac(isubset)
+            IF (present(sharedfrac)) THEN
+               this%subfrc(isubset) = this%subfrc(isubset) * sharedfrac(isubset)
             ENDIF
          ENDDO
 

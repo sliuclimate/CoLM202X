@@ -31,11 +31,8 @@ PROGRAM CoLMINI
    USE MOD_Const_LC
    USE MOD_Const_PFT
    USE MOD_TimeManager
-#ifdef LULC_IGBP_PFT
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
    USE MOD_LandPFT
-#endif
-#ifdef LULC_IGBP_PC
-   USE MOD_LandPC
 #endif
 #ifdef URBAN_MODEL
    USE MOD_LandUrban
@@ -50,6 +47,8 @@ PROGRAM CoLMINI
    USE MOD_HRUVector
 #endif
    USE MOD_Initialize
+   ! SNICAR
+   USE MOD_SnowSnicar, only: SnowAge_init, SnowOptics_init
    implicit none
 
    ! ----------------local variables ---------------------------------
@@ -92,7 +91,11 @@ PROGRAM CoLMINI
 
 #ifdef SinglePoint
    fsrfdata = trim(dir_landdata) // '/srfdata.nc'
+#ifndef URBAN_MODEL
    CALL read_surface_data_single (fsrfdata, mksrfdata=.false.)
+#else
+   CALL read_urban_surface_data_single (fsrfdata, mksrfdata=.false., mkrun=.true.)
+#endif
 #endif
 
    CALL monthday2julian(s_year,s_month,s_day,s_julian)
@@ -121,15 +124,11 @@ PROGRAM CoLMINI
 
    call pixelset_load_from_file (dir_landdata, 'landpatch', landpatch, numpatch, lc_year)
 
-#ifdef LULC_IGBP_PFT
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
    call pixelset_load_from_file (dir_landdata, 'landpft', landpft, numpft, lc_year)
    CALL map_patch_to_pft
 #endif
 
-#ifdef LULC_IGBP_PC
-   call pixelset_load_from_file (dir_landdata, 'landpc', landpc, numpc, lc_year)
-   CALL map_patch_to_pc
-#endif
 #ifdef URBAN_MODEL
    CALL pixelset_load_from_file (dir_landdata, 'landurban', landurban, numurban, lc_year)
    CALL map_patch_to_urban
@@ -140,6 +139,10 @@ PROGRAM CoLMINI
    CALL hru_vector_init ()
 #endif
 #endif
+
+   ! Read in SNICAR optical and aging parameters
+   CALL SnowOptics_init( DEF_file_snowoptics ) ! SNICAR optical parameters
+   CALL SnowAge_init( DEF_file_snowaging )     ! SNICAR aging   parameters
 
    CALL initialize (casename, dir_landdata, dir_restart, idate, lc_year, greenwich)
 

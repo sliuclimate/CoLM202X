@@ -58,7 +58,7 @@ CONTAINS
   IMPLICIT NONE
 
   integer, intent(in)  :: lb                          !lower bound of array
-  integer, intent(in)  :: patchtype                   !land water type (0=soil,1=urban or built-up,2=wetland,
+  integer, intent(in)  :: patchtype                   !land patch type (0=soil,1=urban or built-up,2=wetland,
                                                       !3=land ice, 4=deep lake, 5=shallow lake)
   real(r8), intent(in) :: deltim                      !seconds in a time step [second]
   real(r8), intent(in) :: capr                        !tuning factor to turn first layer T into surface T
@@ -272,7 +272,10 @@ CONTAINS
       ENDDO
 
       CALL meltf (patchtype,lb,nl_soil,deltim, &
-                  fact(lb:),brr(lb:),hs,dhsdT, &
+                  !NOTE: compatibility settings for spliting soil&snow
+                  ! temporal input, as urban mode doesn't support split soil&snow
+                  ! hs_soil=hs, hs_snow=hs, fsno=0.
+                  fact(lb:),brr(lb:),hs,hs,hs,0.,dhsdT, &
                   t_gpersno_bef(lb:),t_gpersno(lb:),wliq_gpersno(lb:),wice_gpersno(lb:),imelt(lb:), &
                   scv_gper,snowdp_gper,sm,xmf,porsl,psi0,&
 #ifdef Campbell_SOIL_MODEL

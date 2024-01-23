@@ -6,16 +6,13 @@ MODULE MOD_Vars_1DFluxes
 ! -------------------------------
 
   USE MOD_Precision
-#ifdef LULC_IGBP_PFT
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
   USE MOD_Vars_1DPFTFluxes
-#endif
-#ifdef LULC_IGBP_PC
-  USE MOD_Vars_1DPCFluxes
 #endif
 #ifdef BGC
   USE MOD_BGC_Vars_1DFluxes
 #endif
-#ifdef LATERAL_FLOW
+#ifdef CatchLateralFlow
   USE MOD_Hydro_Vars_1DFluxes
 #endif
 #ifdef URBAN_MODEL
@@ -62,7 +59,6 @@ MODULE MOD_Vars_1DFluxes
   REAL(r8), allocatable :: rnet   (:) !net radiation by surface [W/m2]
   REAL(r8), allocatable :: xerr   (:) !the error of water banace [mm/s]
   REAL(r8), allocatable :: zerr   (:) !the error of energy balance [W/m2]
-
   REAL(r8), allocatable :: rsur   (:) !surface runoff (mm h2o/s)
   REAL(r8), allocatable :: rsub   (:) !subsurface runoff (mm h2o/s)
   REAL(r8), allocatable :: rnof   (:) !total runoff (mm h2o/s)
@@ -154,19 +150,15 @@ MODULE MOD_Vars_1DFluxes
          end if
       end if
 
-#ifdef LULC_IGBP_PFT
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
       CALL allocate_1D_PFTFluxes
-#endif
-
-#ifdef LULC_IGBP_PC
-      CALL allocate_1D_PCFluxes
 #endif
 
 #ifdef BGC
       CALL allocate_1D_BGCFluxes
 #endif
 
-#ifdef LATERAL_FLOW
+#ifdef CatchLateralFlow
       CALL allocate_1D_HydroFluxes
 #endif
 
@@ -222,7 +214,6 @@ MODULE MOD_Vars_1DFluxes
            deallocate ( rnet    )  ! net radiation by surface [W/m2]
            deallocate ( xerr    )  ! the error of water banace [mm/s]
            deallocate ( zerr    )  ! the error of energy balance [W/m2]
-
            deallocate ( rsur    )  ! surface runoff (mm h2o/s)
            deallocate ( rsub    )  ! subsurface runoff (mm h2o/s)
            deallocate ( rnof    )  ! total runoff (mm h2o/s)
@@ -239,19 +230,15 @@ MODULE MOD_Vars_1DFluxes
         end if
      end if
 
-#ifdef LULC_IGBP_PFT
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
      CALL deallocate_1D_PFTFluxes
-#endif
-
-#ifdef LULC_IGBP_PC
-     CALL deallocate_1D_PCFluxes
 #endif
 
 #ifdef BGC
      CALL deallocate_1D_BGCFluxes
 #endif
 
-#ifdef LATERAL_FLOW
+#ifdef CatchLateralFlow
      CALL deallocate_1D_HydroFluxes
 #endif
 

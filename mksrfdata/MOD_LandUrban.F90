@@ -16,6 +16,10 @@ MODULE MOD_LandUrban
    USE MOD_Grid
    USE MOD_Pixelset
    USE MOD_Vars_Global, only: N_URB, URBAN
+#ifdef SinglePoint
+   USE MOD_SingleSrfdata
+#endif
+
    IMPLICIT NONE
 
    ! ---- Instance ----
@@ -38,6 +42,7 @@ CONTAINS
    SUBROUTINE landurban_build (lc_year)
 
       USE MOD_Precision
+      USE MOD_Vars_Global
       USE MOD_SPMD_Task
       USE MOD_NetCDFBlock
       USE MOD_Grid
@@ -50,9 +55,6 @@ CONTAINS
 #ifdef CATCHMENT
       USE MOD_LandHRU
 #endif
-#if (defined CROP)
-      USE MOD_PixelsetShadow
-#endif
       USE MOD_AggregationRequestData
       USE MOD_Utils
 
@@ -63,11 +65,6 @@ CONTAINS
       CHARACTER(len=256) :: dir_urban
       TYPE (block_data_int32_2d) :: data_urb_class ! urban type index
 
-#if (defined CROP)
-      TYPE(block_data_real8_3d) :: cropdata
-      INTEGER            :: cropfilter(1)
-      CHARACTER(len=256) :: file_patch
-#endif
       ! local vars
       INTEGER, allocatable :: ibuff(:), types(:), order(:)
 
@@ -78,11 +75,11 @@ CONTAINS
 
       ! local vars for landpath and landurban
       INTEGER :: numpatch_
-      INTEGER, allocatable :: eindex_(:)
-      INTEGER, allocatable :: ipxstt_(:)
-      INTEGER, allocatable :: ipxend_(:)
-      INTEGER, allocatable :: settyp_(:)
-      INTEGER, allocatable :: ielm_  (:)
+      INTEGER*8, allocatable :: eindex_(:)
+      INTEGER,   allocatable :: ipxstt_(:)
+      INTEGER,   allocatable :: ipxend_(:)
+      INTEGER,   allocatable :: settyp_(:)
+      INTEGER,   allocatable :: ielm_  (:)
 
       INTEGER :: numurban_
       INTEGER, allocatable :: urbclass (:)
@@ -100,20 +97,20 @@ CONTAINS
       ! allocate and read the grided LCZ/NCAR urban type
       if (p_is_io) then
 
-         dir_urban = trim(DEF_dir_rawdata) // '/urban'
+         dir_urban = trim(DEF_dir_rawdata) // '/urban_type'
 
          CALL allocate_block_data (gurban, data_urb_class)
          CALL flush_block_data (data_urb_class, 0)
 
-         write(cyear,'(i4.4)') int(lc_year/5)*5
-         suffix = 'URB'//trim(cyear)
-#ifdef URBAN_LCZ
-         CALL read_5x5_data (dir_urban, suffix, gurban, 'LCZ', data_urb_class)
-#else
+         !write(cyear,'(i4.4)') int(lc_year/5)*5
+         suffix = 'URBTYP'
+IF (DEF_URBAN_type_scheme == 1) THEN
          ! NOTE!!!
          ! region id is assigned in aggreagation_urban.F90 now
          CALL read_5x5_data (dir_urban, suffix, gurban, 'URBAN_DENSITY_CLASS', data_urb_class)
-#endif
+ELSE IF (DEF_URBAN_type_scheme == 2) THEN
+         CALL read_5x5_data (dir_urban, suffix, gurban, 'LCZ_DOM', data_urb_class)
+ENDIF
 
 #ifdef USEMPI
          CALL aggregation_data_daemon (gurban, data_i4_2d_in1 = data_urb_class)
@@ -151,21 +148,21 @@ CONTAINS
                ipxstt = landpatch%ipxstt(ipatch)
                ipxend = landpatch%ipxend(ipatch)
 
-               CALL aggregation_request_data (landpatch, ipatch, gurban, &
+               CALL aggregation_request_data (landpatch, ipatch, gurban, zip = .false., &
                   data_i4_2d_in1 = data_urb_class, data_i4_2d_out1 = ibuff)
 
-#ifndef URBAN_LCZ
+IF (DEF_URBAN_type_scheme == 1) THEN
                ! Some urban patches and NCAR data are inconsistent (NCAR has no urban ID),
                ! so the these points are assigned by the 3(medium density), or can define by ueser
                where (ibuff < 1 .or. ibuff > 3)
                   ibuff = 3
                END where
-#else
+ELSE IF(DEF_URBAN_type_scheme == 2) THEN
                ! Same for NCAR, fill the gap LCZ class of urban patch if LCZ data is non-urban
-               where (ibuff > 10)
+               where (ibuff > 10 .or. ibuff == 0)
                   ibuff = 9
                END where
-#endif
+ENDIF
 
                npxl = ipxend - ipxstt + 1
 
@@ -298,22 +295,49 @@ CONTAINS
       write(*,'(A,I12,A)') 'Total: ', numurban, ' urban tiles.'
 #endif
 
-#if (defined CROP)
-      IF (p_is_io) THEN
-         !file_patch = trim(DEF_dir_rawdata) // '/global_0.5x0.5.MOD2005_V4.5_CFT_mergetoclmpft.nc'
-         file_patch = trim(DEF_dir_rawdata) // '/global_0.5x0.5.MOD2005_V4.5_CFT_lf-merged-20220930.nc'
-         CALL allocate_block_data (gcrop, cropdata, N_CFT)
-         CALL ncio_read_block (file_patch, 'PCT_CFT', gcrop, N_CFT, cropdata)
-      ENDIF
+#ifdef SinglePoint
 
-      cropfilter = (/ CROPLAND /)
+      allocate  ( SITE_urbtyp   (numurban) )
+      allocate  ( SITE_lucyid   (numurban) )
 
-      CALL pixelsetshadow_build (landpatch, gcrop, cropdata, N_CFT, cropfilter, &
-         pctcrop, cropclass)
+IF (.not. USE_SITE_urban_paras) THEN
+      allocate  ( SITE_fveg_urb (numurban) )
+      allocate  ( SITE_htop_urb (numurban) )
+      allocate  ( SITE_flake_urb(numurban) )
 
-      numpatch = landpatch%nset
+      allocate  ( SITE_popden   (numurban) )
+      allocate  ( SITE_froof    (numurban) )
+      allocate  ( SITE_hroof    (numurban) )
+      allocate  ( SITE_hwr      (numurban) )
+      allocate  ( SITE_fgper    (numurban) )
+      allocate  ( SITE_fgimp    (numurban) )
+ENDIF
+
+      allocate  ( SITE_em_roof  (numurban) )
+      allocate  ( SITE_em_wall  (numurban) )
+      allocate  ( SITE_em_gimp  (numurban) )
+      allocate  ( SITE_em_gper  (numurban) )
+      allocate  ( SITE_t_roommax(numurban) )
+      allocate  ( SITE_t_roommin(numurban) )
+      allocate  ( SITE_thickroof(numurban) )
+      allocate  ( SITE_thickwall(numurban) )
+
+      allocate  ( SITE_cv_roof  (nl_roof) )
+      allocate  ( SITE_cv_wall  (nl_wall) )
+      allocate  ( SITE_cv_gimp  (nl_soil) )
+      allocate  ( SITE_tk_roof  (nl_roof) )
+      allocate  ( SITE_tk_wall  (nl_wall) )
+      allocate  ( SITE_tk_gimp  (nl_soil) )
+
+      allocate  ( SITE_alb_roof (2, 2) )
+      allocate  ( SITE_alb_wall (2, 2) )
+      allocate  ( SITE_alb_gimp (2, 2) )
+      allocate  ( SITE_alb_gper (2, 2) )
+
+      SITE_urbtyp(:) = landurban%settyp
 #endif
 
+#ifndef CROP
 #ifdef USEMPI
       IF (p_is_worker) THEN
          CALL mpi_reduce (numpatch, npatch_glb, 1, MPI_INTEGER, MPI_SUM, p_root, p_comm_worker, p_err)
@@ -327,21 +351,12 @@ CONTAINS
       write(*,'(A,I12,A)') 'Total: ', numpatch, ' patches.'
 #endif
 
-#if (defined CROP)
-      CALL elm_patch%build (landelm, landpatch, use_frac = .true., shadowfrac = pctcrop)
-#else
       CALL elm_patch%build (landelm, landpatch, use_frac = .true.)
-#endif
-
 #ifdef CATCHMENT
-#if (defined CROP)
-      CALL hru_patch%build (landhru, landpatch, use_frac = .true., shadowfrac = pctcrop)
-#else
       CALL hru_patch%build (landhru, landpatch, use_frac = .true.)
 #endif
-#endif
-
       CALL write_patchfrac (DEF_dir_landdata, lc_year)
+#endif
 
       IF (allocated(ibuff)) deallocate (ibuff)
       IF (allocated(types)) deallocate (types)

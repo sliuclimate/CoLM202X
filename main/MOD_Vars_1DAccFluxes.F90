@@ -39,6 +39,10 @@ module MOD_Vars_1DAccFluxes
    real(r8), allocatable :: a_rsur   (:)
    real(r8), allocatable :: a_rsub   (:)
    real(r8), allocatable :: a_rnof   (:)
+#ifdef CatchLateralFlow
+   real(r8), allocatable :: a_xwsur  (:)
+   real(r8), allocatable :: a_xwsub  (:)
+#endif
    real(r8), allocatable :: a_qintr  (:)
    real(r8), allocatable :: a_qinfl  (:)
    real(r8), allocatable :: a_qdrip  (:)
@@ -46,10 +50,12 @@ module MOD_Vars_1DAccFluxes
    real(r8), allocatable :: a_rstfacsha (:)
    real(r8), allocatable :: a_gssun (:)
    real(r8), allocatable :: a_gssha (:)
+   real(r8), allocatable :: a_rss   (:)
    real(r8), allocatable :: a_wdsrf  (:)
    real(r8), allocatable :: a_zwt    (:)
    real(r8), allocatable :: a_wa     (:)
    real(r8), allocatable :: a_wat    (:)
+   real(r8), allocatable :: a_wetwat (:)
    real(r8), allocatable :: a_assim  (:)
    real(r8), allocatable :: a_respc  (:)
    real(r8), allocatable :: a_assimsun   (:) !1
@@ -212,6 +218,14 @@ module MOD_Vars_1DAccFluxes
    real(r8), allocatable :: a_fertnitro_rice1       (:)
    real(r8), allocatable :: a_fertnitro_rice2       (:)
    real(r8), allocatable :: a_fertnitro_sugarcane   (:)
+   real(r8), allocatable :: a_irrig_method_corn        (:)
+   real(r8), allocatable :: a_irrig_method_swheat      (:)
+   real(r8), allocatable :: a_irrig_method_wwheat      (:)
+   real(r8), allocatable :: a_irrig_method_soybean     (:)
+   real(r8), allocatable :: a_irrig_method_cotton      (:)
+   real(r8), allocatable :: a_irrig_method_rice1       (:)
+   real(r8), allocatable :: a_irrig_method_rice2       (:)
+   real(r8), allocatable :: a_irrig_method_sugarcane   (:)
    real(r8), allocatable :: a_cphase             (:)
    real(r8), allocatable :: a_gddplant           (:)
    real(r8), allocatable :: a_gddmaturity        (:)
@@ -223,6 +237,11 @@ module MOD_Vars_1DAccFluxes
    real(r8), allocatable :: a_grainc_to_cropprodc(:)
    real(r8), allocatable :: a_grainc_to_seed     (:)
    real(r8), allocatable :: a_fert_to_sminn      (:)
+
+   real(r8), allocatable :: a_irrig_rate         (:)
+   real(r8), allocatable :: a_deficit_irrig      (:)
+   real(r8), allocatable :: a_sum_irrig          (:)
+   real(r8), allocatable :: a_sum_irrig_count    (:)
 #endif
    real(r8), allocatable :: a_ndep_to_sminn      (:)
    real(r8), allocatable :: a_abm                (:)
@@ -312,7 +331,10 @@ contains
       use MOD_SPMD_Task
       USE MOD_LandElm
       use MOD_LandPatch
-      USE MOD_LandUrban, only : numurban
+      USE MOD_LandUrban, only: numurban
+#ifdef CROP
+      USE MOD_LandCrop
+#endif
       USE MOD_Vars_Global
       implicit none
 
@@ -351,6 +373,10 @@ contains
             allocate (a_rsur      (numpatch))
             allocate (a_rsub      (numpatch))
             allocate (a_rnof      (numpatch))
+#ifdef CatchLateralFlow
+            allocate (a_xwsur     (numpatch))
+            allocate (a_xwsub     (numpatch))
+#endif
             allocate (a_qintr     (numpatch))
             allocate (a_qinfl     (numpatch))
             allocate (a_qdrip     (numpatch))
@@ -358,11 +384,13 @@ contains
             allocate (a_rstfacsha (numpatch))
             allocate (a_gssun     (numpatch))
             allocate (a_gssha     (numpatch))
+            allocate (a_rss       (numpatch))
             allocate (a_wdsrf     (numpatch))
 
             allocate (a_zwt       (numpatch))
             allocate (a_wa        (numpatch))
             allocate (a_wat       (numpatch))
+            allocate (a_wetwat    (numpatch))
             allocate (a_assim     (numpatch))
             allocate (a_respc     (numpatch))
 
@@ -527,6 +555,14 @@ contains
             allocate (a_fertnitro_rice1    (numpatch))
             allocate (a_fertnitro_rice2    (numpatch))
             allocate (a_fertnitro_sugarcane(numpatch))
+            allocate (a_irrig_method_corn     (numpatch))
+            allocate (a_irrig_method_swheat   (numpatch))
+            allocate (a_irrig_method_wwheat   (numpatch))
+            allocate (a_irrig_method_soybean  (numpatch))
+            allocate (a_irrig_method_cotton   (numpatch))
+            allocate (a_irrig_method_rice1    (numpatch))
+            allocate (a_irrig_method_rice2    (numpatch))
+            allocate (a_irrig_method_sugarcane(numpatch))
             allocate (a_cphase             (numpatch))
             allocate (a_hui                (numpatch))
             allocate (a_gddmaturity        (numpatch))
@@ -538,6 +574,11 @@ contains
             allocate (a_grainc_to_cropprodc(numpatch))
             allocate (a_grainc_to_seed     (numpatch))
             allocate (a_fert_to_sminn      (numpatch))
+
+            allocate (a_irrig_rate         (numpatch))
+            allocate (a_deficit_irrig      (numpatch))
+            allocate (a_sum_irrig          (numpatch))
+            allocate (a_sum_irrig_count    (numpatch))
 #endif
             allocate (a_ndep_to_sminn      (numpatch))
 
@@ -623,7 +664,7 @@ contains
 
       IF (p_is_worker) THEN
 #if (defined CROP)
-         CALL elm_patch%build (landelm, landpatch, use_frac = .true., shadowfrac = pctcrop)
+         CALL elm_patch%build (landelm, landpatch, use_frac = .true., sharedfrac = pctshrpch)
 #else
          CALL elm_patch%build (landelm, landpatch, use_frac = .true.)
 #endif
@@ -673,18 +714,24 @@ contains
             deallocate (a_rsur      )
             deallocate (a_rsub      )
             deallocate (a_rnof      )
+#ifdef CatchLateralFlow
+            deallocate (a_xwsur     )
+            deallocate (a_xwsub     )
+#endif
             deallocate (a_qintr     )
             deallocate (a_qinfl     )
             deallocate (a_qdrip     )
             deallocate (a_rstfacsun )
             deallocate (a_rstfacsha )
-            deallocate (a_gssun )
-            deallocate (a_gssha )
+            deallocate (a_gssun     )
+            deallocate (a_gssha     )
+            deallocate (a_rss       )
             deallocate (a_wdsrf     )
 
             deallocate (a_zwt       )
             deallocate (a_wa        )
             deallocate (a_wat       )
+            deallocate (a_wetwat    )
             deallocate (a_assim     )
             deallocate (a_respc     )
 
@@ -850,6 +897,14 @@ contains
             deallocate (a_fertnitro_rice1    )
             deallocate (a_fertnitro_rice2    )
             deallocate (a_fertnitro_sugarcane)
+            deallocate (a_irrig_method_corn     )
+            deallocate (a_irrig_method_swheat   )
+            deallocate (a_irrig_method_wwheat   )
+            deallocate (a_irrig_method_soybean  )
+            deallocate (a_irrig_method_cotton   )
+            deallocate (a_irrig_method_rice1    )
+            deallocate (a_irrig_method_rice2    )
+            deallocate (a_irrig_method_sugarcane)
             deallocate (a_cphase             )
             deallocate (a_hui                )
             deallocate (a_vf                 )
@@ -861,6 +916,11 @@ contains
             deallocate (a_grainc_to_cropprodc)
             deallocate (a_grainc_to_seed     )
             deallocate (a_fert_to_sminn      )
+
+            deallocate (a_irrig_rate         )
+            deallocate (a_deficit_irrig      )
+            deallocate (a_sum_irrig          )
+            deallocate (a_sum_irrig_count    )
 #endif
             deallocate (a_ndep_to_sminn      )
 
@@ -994,6 +1054,10 @@ contains
             a_rsur    (:) = spval
             a_rsub    (:) = spval
             a_rnof    (:) = spval
+#ifdef CatchLateralFlow
+            a_xwsur   (:) = spval
+            a_xwsub   (:) = spval
+#endif
             a_qintr   (:) = spval
             a_qinfl   (:) = spval
             a_qdrip   (:) = spval
@@ -1001,11 +1065,13 @@ contains
             a_rstfacsha(:) = spval
             a_gssun   (:) = spval
             a_gssha   (:) = spval
+            a_rss     (:) = spval
 
             a_wdsrf   (:) = spval
             a_zwt     (:) = spval
             a_wa      (:) = spval
             a_wat     (:) = spval
+            a_wetwat  (:) = spval
             a_assim   (:) = spval
             a_respc   (:) = spval
             a_assimsun(:) = spval !1
@@ -1170,6 +1236,14 @@ contains
             a_fertnitro_rice1    (:) = spval
             a_fertnitro_rice2    (:) = spval
             a_fertnitro_sugarcane(:) = spval
+            a_irrig_method_corn     (:) = spval
+            a_irrig_method_swheat   (:) = spval
+            a_irrig_method_wwheat   (:) = spval
+            a_irrig_method_soybean  (:) = spval
+            a_irrig_method_cotton   (:) = spval
+            a_irrig_method_rice1    (:) = spval
+            a_irrig_method_rice2    (:) = spval
+            a_irrig_method_sugarcane(:) = spval
             a_cphase             (:) = spval
             a_vf                 (:) = spval
             a_gddmaturity        (:) = spval
@@ -1181,6 +1255,10 @@ contains
             a_grainc_to_cropprodc(:) = spval
             a_grainc_to_seed     (:) = spval
             a_fert_to_sminn      (:) = spval
+            a_irrig_rate         (:) = spval
+            a_deficit_irrig      (:) = spval
+            a_sum_irrig          (:) = spval
+            a_sum_irrig_count    (:) = spval
 #endif
             a_ndep_to_sminn      (:) = spval
 
@@ -1273,12 +1351,12 @@ contains
 
       use MOD_Precision
       use MOD_SPMD_Task
-      USE mod_forcing, only : forcmask
-      USE MOD_Mesh,    only : numelm
+      USE mod_forcing, only: forcmask
+      USE MOD_Mesh,    only: numelm
       USE MOD_LandElm
-      use MOD_LandPatch,      only : numpatch, elm_patch
-      USE MOD_LandUrban,      only : numurban
-      use MOD_Const_Physical, only : vonkar, stefnc, cpair, rgas, grav
+      use MOD_LandPatch,      only: numpatch, elm_patch
+      USE MOD_LandUrban,      only: numurban
+      use MOD_Const_Physical, only: vonkar, stefnc, cpair, rgas, grav
       use MOD_Vars_TimeInvariants
       use MOD_Vars_TimeVariables
       use MOD_Vars_1DForcing
@@ -1287,8 +1365,9 @@ contains
       USE MOD_Namelist, only: DEF_USE_CBL_HEIGHT, DEF_USE_OZONESTRESS, DEF_USE_PLANTHYDRAULICS, DEF_USE_NITRIF
       USE MOD_TurbulenceLEddy
       use MOD_Vars_Global
-#ifdef LATERAL_FLOW
-      USE MOD_Hydro_Hist, only : accumulate_fluxes_basin
+#ifdef CatchLateralFlow
+      USE MOD_Hydro_Vars_1DFluxes
+      USE MOD_Hydro_Hist, only: accumulate_fluxes_basin
 #endif
 
       IMPLICIT NONE
@@ -1296,7 +1375,6 @@ contains
       ! Local Variables
 
       real(r8), allocatable :: r_trad  (:)
-
       real(r8), allocatable :: r_ustar (:)
       real(r8), allocatable :: r_ustar2(:) !define a temporary for estimating us10m only, output should be r_ustar. Shaofeng, 2023.05.20
       real(r8), allocatable :: r_tstar (:)
@@ -1311,7 +1389,7 @@ contains
       real(r8), allocatable :: r_vs10m (:)
       real(r8), allocatable :: r_fm10m (:)
 
-      logical,  allocatable :: patchmask (:)
+      logical,  allocatable :: filter  (:)
 
       !---------------------------------------------------------------------
       integer  ib, jb, i, j, ielm, istt, iend
@@ -1367,63 +1445,80 @@ contains
                   rnet = sabg + sabvsun + sabvsha - olrg + forc_frl
                END WHERE
             ELSE
-               rnet = sabg + sabvsun + sabvsha - olrg + forc_frl
+               WHERE(patchmask)
+                 rnet = sabg + sabvsun + sabvsha - olrg + forc_frl
+               END WHERE
             ENDIF
             call acc1d (rnet    , a_rnet   )
 
             call acc1d (xerr    , a_xerr   )
             call acc1d (zerr    , a_zerr   )
             call acc1d (rsur    , a_rsur   )
+#ifndef CatchLateralFlow
+            WHERE ((rsur /= spval) .and. (rnof /= spval))
+               rsub = rnof - rsur
+            ELSEWHERE
+               rsub = spval
+            END WHERE 
+#endif
             call acc1d (rsub    , a_rsub   )
             call acc1d (rnof    , a_rnof   )
+#ifdef CatchLateralFlow
+            CALL acc1d (xwsur   , a_xwsur  )
+            CALL acc1d (xwsub   , a_xwsub  )
+#endif
             call acc1d (qintr   , a_qintr  )
             call acc1d (qinfl   , a_qinfl  )
             call acc1d (qdrip   , a_qdrip  )
 
             call acc1d (rstfacsun_out , a_rstfacsun )
             call acc1d (rstfacsha_out , a_rstfacsha )
-            call acc1d (gssun_out     , a_gssun     )
-            call acc1d (gssha_out     , a_gssha     )
 
-            call acc1d (wdsrf   , a_wdsrf  )
-            call acc1d (zwt     , a_zwt    )
-            call acc1d (wa      , a_wa     )
-            call acc1d (wat     , a_wat    )
-            call acc1d (assim   , a_assim  )
-            call acc1d (respc   , a_respc  )
+            call acc1d (gssun_out     , a_gssun )
+            call acc1d (gssha_out     , a_gssha )
 
-            call acc1d (assimsun_out  , a_assimsun  )
-            call acc1d (assimsha_out  , a_assimsha  )
-            call acc1d (etrsun_out    , a_etrsun    )
-            call acc1d (etrsha_out    , a_etrsha    )
+            call acc1d (rss    , a_rss    )
+            call acc1d (wdsrf  , a_wdsrf  )
+            call acc1d (zwt    , a_zwt    )
+            call acc1d (wa     , a_wa     )
+            call acc1d (wat    , a_wat    )
+            call acc1d (wetwat , a_wetwat )
+            call acc1d (assim  , a_assim  )
+            call acc1d (respc  , a_respc  )
+            call acc1d (assimsun_out  , a_assimsun      )
+            call acc1d (assimsha_out  , a_assimsha      )
+            call acc1d (etrsun_out    , a_etrsun        )
+            call acc1d (etrsha_out    , a_etrsha        )
 
-            call acc1d (qcharge   , a_qcharge   )
+            call acc1d (qcharge, a_qcharge)
 
-            call acc1d (t_grnd    , a_t_grnd    )
-            call acc1d (tleaf     , a_tleaf     )
-            call acc1d (ldew_rain , a_ldew_rain )
-            call acc1d (ldew_snow , a_ldew_snow )
-            call acc1d (ldew      , a_ldew      )
-            call acc1d (scv       , a_scv       )
-            call acc1d (snowdp    , a_snowdp    )
-            call acc1d (fsno      , a_fsno      )
-            call acc1d (sigf      , a_sigf      )
-            call acc1d (green     , a_green     )
-            call acc1d (lai       , a_lai       )
-            call acc1d (laisun    , a_laisun    )
-            call acc1d (laisha    , a_laisha    )
-            call acc1d (sai       , a_sai       )
+            call acc1d (t_grnd , a_t_grnd )
+            call acc1d (tleaf  , a_tleaf  )
+            call acc1d (ldew_rain, a_ldew_rain)
+            call acc1d (ldew_snow, a_ldew_snow)
+            call acc1d (ldew   , a_ldew   )
+            call acc1d (scv    , a_scv    )
+            call acc1d (snowdp , a_snowdp )
+            call acc1d (fsno   , a_fsno   )
+            call acc1d (sigf   , a_sigf   )
+            call acc1d (green  , a_green  )
+            call acc1d (lai    , a_lai    )
+            call acc1d (laisun , a_laisun )
+            call acc1d (laisha , a_laisha )
+            call acc1d (sai    , a_sai    )
 
-            call acc3d (alb       , a_alb       )
+            call acc3d (alb    , a_alb    )
 
-            call acc1d (emis      , a_emis      )
-            call acc1d (z0m       , a_z0m       )
+            call acc1d (emis   , a_emis   )
+            call acc1d (z0m    , a_z0m    )
 
-            allocate (r_trad (numpatch))
+            allocate (r_trad (numpatch)) ; r_trad(:) = spval
             do i = 1, numpatch
                IF (DEF_forcing%has_missing_value) THEN
                   IF (.not. forcmask(i)) cycle
                ENDIF
+
+               IF (.not. patchmask(i)) CYCLE
                r_trad(i) = (olrg(i)/stefnc)**0.25
             end do
             call acc1d (r_trad , a_trad   )
@@ -1566,6 +1661,14 @@ contains
             call acc1d (fertnitro_rice1    ,   a_fertnitro_rice1    )
             call acc1d (fertnitro_rice2    ,   a_fertnitro_rice2    )
             call acc1d (fertnitro_sugarcane,   a_fertnitro_sugarcane)
+            call acc1d (real(irrig_method_corn     ,r8),   a_irrig_method_corn     )
+            call acc1d (real(irrig_method_swheat   ,r8),   a_irrig_method_swheat   )
+            call acc1d (real(irrig_method_wwheat   ,r8),   a_irrig_method_wwheat   )
+            call acc1d (real(irrig_method_soybean  ,r8),   a_irrig_method_soybean  )
+            call acc1d (real(irrig_method_cotton   ,r8),   a_irrig_method_cotton   )
+            call acc1d (real(irrig_method_rice1    ,r8),   a_irrig_method_rice1    )
+            call acc1d (real(irrig_method_rice2    ,r8),   a_irrig_method_rice2    )
+            call acc1d (real(irrig_method_sugarcane,r8),   a_irrig_method_sugarcane)
             call acc1d (cphase             ,   a_cphase             )
             call acc1d (hui                ,   a_hui                )
             call acc1d (vf                 ,   a_vf                 )
@@ -1577,6 +1680,16 @@ contains
             call acc1d (grainc_to_cropprodc,   a_grainc_to_cropprodc)
             call acc1d (grainc_to_seed     ,   a_grainc_to_seed     )
             call acc1d (fert_to_sminn      ,   a_fert_to_sminn      )
+
+            ! call acc1d (irrig_rate         ,   a_irrig_rate         )
+            ! call acc1d (deficit_irrig      ,   a_deficit_irrig      )
+            ! call acc1d (sum_irrig          ,   a_sum_irrig          )
+            ! call acc1d (sum_irrig_count    ,   a_sum_irrig_count    )
+            call acc1d (irrig_rate         ,   a_irrig_rate         )
+            call acc1d (deficit_irrig      ,   a_deficit_irrig      )
+            a_sum_irrig = sum_irrig
+            a_sum_irrig_count = sum_irrig_count
+
 #endif
             call acc1d (ndep_to_sminn      ,   a_ndep_to_sminn      )
             if(DEF_USE_FIRE)then
@@ -1710,36 +1823,39 @@ contains
                istt = elm_patch%substt(ielm)
                iend = elm_patch%subend(ielm)
 
-               allocate (patchmask (istt:iend))
-               patchmask(:) = .true.
+               allocate (filter (istt:iend))
+               filter(:) = .true.
+
+               filter(:) = patchmask(istt:iend)
 
                IF (DEF_forcing%has_missing_value) THEN
-                  patchmask = forcmask(istt:iend)
+                  WHERE (.not. forcmask(istt:iend)) filter = .false.
+                  filter = filter .and. forcmask(istt:iend)
                ENDIF
 
-               IF (.not. any(patchmask)) THEN
-                  deallocate(patchmask)
+               IF (.not. any(filter)) THEN
+                  deallocate(filter)
                   CYCLE
                ENDIF
 
-               sumwt = sum(elm_patch%subfrc(istt:iend), mask = patchmask)
+               sumwt = sum(elm_patch%subfrc(istt:iend), mask = filter)
 
                ! Aggregate variables from patches to element (gridcell in latitude-longitude mesh)
-               z0m_av  = sum(z0m        (istt:iend) * elm_patch%subfrc(istt:iend), mask = patchmask) / sumwt
-               hgt_u   = sum(forc_hgt_u (istt:iend) * elm_patch%subfrc(istt:iend), mask = patchmask) / sumwt
-               hgt_t   = sum(forc_hgt_t (istt:iend) * elm_patch%subfrc(istt:iend), mask = patchmask) / sumwt
-               hgt_q   = sum(forc_hgt_q (istt:iend) * elm_patch%subfrc(istt:iend), mask = patchmask) / sumwt
-               us      = sum(forc_us    (istt:iend) * elm_patch%subfrc(istt:iend), mask = patchmask) / sumwt
-               vs      = sum(forc_vs    (istt:iend) * elm_patch%subfrc(istt:iend), mask = patchmask) / sumwt
-               tm      = sum(forc_t     (istt:iend) * elm_patch%subfrc(istt:iend), mask = patchmask) / sumwt
-               qm      = sum(forc_q     (istt:iend) * elm_patch%subfrc(istt:iend), mask = patchmask) / sumwt
-               psrf    = sum(forc_psrf  (istt:iend) * elm_patch%subfrc(istt:iend), mask = patchmask) / sumwt
-               taux_e  = sum(taux       (istt:iend) * elm_patch%subfrc(istt:iend), mask = patchmask) / sumwt
-               tauy_e  = sum(tauy       (istt:iend) * elm_patch%subfrc(istt:iend), mask = patchmask) / sumwt
-               fsena_e = sum(fsena      (istt:iend) * elm_patch%subfrc(istt:iend), mask = patchmask) / sumwt
-               fevpa_e = sum(fevpa      (istt:iend) * elm_patch%subfrc(istt:iend), mask = patchmask) / sumwt
+               z0m_av  = sum(z0m        (istt:iend) * elm_patch%subfrc(istt:iend), mask = filter) / sumwt
+               hgt_u   = sum(forc_hgt_u (istt:iend) * elm_patch%subfrc(istt:iend), mask = filter) / sumwt
+               hgt_t   = sum(forc_hgt_t (istt:iend) * elm_patch%subfrc(istt:iend), mask = filter) / sumwt
+               hgt_q   = sum(forc_hgt_q (istt:iend) * elm_patch%subfrc(istt:iend), mask = filter) / sumwt
+               us      = sum(forc_us    (istt:iend) * elm_patch%subfrc(istt:iend), mask = filter) / sumwt
+               vs      = sum(forc_vs    (istt:iend) * elm_patch%subfrc(istt:iend), mask = filter) / sumwt
+               tm      = sum(forc_t     (istt:iend) * elm_patch%subfrc(istt:iend), mask = filter) / sumwt
+               qm      = sum(forc_q     (istt:iend) * elm_patch%subfrc(istt:iend), mask = filter) / sumwt
+               psrf    = sum(forc_psrf  (istt:iend) * elm_patch%subfrc(istt:iend), mask = filter) / sumwt
+               taux_e  = sum(taux       (istt:iend) * elm_patch%subfrc(istt:iend), mask = filter) / sumwt
+               tauy_e  = sum(tauy       (istt:iend) * elm_patch%subfrc(istt:iend), mask = filter) / sumwt
+               fsena_e = sum(fsena      (istt:iend) * elm_patch%subfrc(istt:iend), mask = filter) / sumwt
+               fevpa_e = sum(fevpa      (istt:iend) * elm_patch%subfrc(istt:iend), mask = filter) / sumwt
                if (DEF_USE_CBL_HEIGHT) then !//TODO: Shaofeng, 2023.05.18
-                  hpbl = sum(forc_hpbl(istt:iend) * elm_patch%subfrc(istt:iend), mask = patchmask) / sumwt
+                  hpbl = sum(forc_hpbl(istt:iend) * elm_patch%subfrc(istt:iend), mask = filter) / sumwt
                ENDIF
 
                z0h_av = z0m_av
@@ -1819,7 +1935,7 @@ contains
                r_vs10m (istt:iend) = r_vs10m_e
                r_fm10m (istt:iend) = r_fm10m_e
 
-               deallocate(patchmask)
+               deallocate(filter)
 
             end do
 
@@ -1878,7 +1994,7 @@ contains
          end if
       end if
 
-#ifdef LATERAL_FLOW
+#ifdef CatchLateralFlow
       CALL accumulate_fluxes_basin ()
 #endif
 

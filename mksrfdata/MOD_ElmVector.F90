@@ -22,7 +22,7 @@ MODULE MOD_ElmVector
    INTEGER :: totalnumelm
    TYPE(pointer_int32_1d), allocatable :: elm_data_address (:)
 
-   INTEGER, allocatable :: eindex_glb (:)
+   INTEGER*8, allocatable :: eindex_glb (:)
    
 CONTAINS
    
@@ -36,6 +36,9 @@ CONTAINS
       USE MOD_Mesh
       USE MOD_LandElm
       USE MOD_LandPatch
+#ifdef CROP
+      USE MOD_LandCrop
+#endif
       IMPLICIT NONE
 
       ! Local Variables
@@ -44,12 +47,13 @@ CONTAINS
 
       INTEGER :: i, idsp
       INTEGER, allocatable :: vec_worker_dsp (:)
-      INTEGER, allocatable :: indexelm (:)
-      INTEGER, allocatable :: order    (:)
+      
+      INTEGER*8, allocatable :: indexelm (:)
+      INTEGER,   allocatable :: order    (:)
       
       IF (p_is_worker) THEN
 #if (defined CROP) 
-         CALL elm_patch%build (landelm, landpatch, use_frac = .true., shadowfrac = pctcrop)
+         CALL elm_patch%build (landelm, landpatch, use_frac = .true., sharedfrac = pctshrpch)
 #else
          CALL elm_patch%build (landelm, landpatch, use_frac = .true.)
 #endif
@@ -74,7 +78,7 @@ CONTAINS
          mesg = (/p_iam_glb, numelm/)
          call mpi_send (mesg, 2, MPI_INTEGER, p_root, mpi_tag_mesg, p_comm_glb, p_err) 
          IF (numelm > 0) THEN
-            call mpi_send (indexelm, numelm, MPI_INTEGER, p_root, mpi_tag_data, p_comm_glb, p_err) 
+            call mpi_send (indexelm, numelm, MPI_INTEGER8, p_root, mpi_tag_data, p_comm_glb, p_err) 
          ENDIF
 #else
          IF (numelm > 0) THEN
@@ -115,7 +119,7 @@ CONTAINS
             ndata = mesg(2)
             IF (ndata > 0) THEN
                idsp = vec_worker_dsp(p_itis_worker(isrc))
-               call mpi_recv (eindex_glb(idsp+1:idsp+ndata), ndata, MPI_INTEGER, isrc, &
+               call mpi_recv (eindex_glb(idsp+1:idsp+ndata), ndata, MPI_INTEGER8, isrc, &
                   mpi_tag_data, p_comm_glb, p_stat, p_err)
             ENDIF
          ENDDO

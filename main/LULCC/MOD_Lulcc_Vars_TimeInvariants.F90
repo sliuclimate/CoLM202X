@@ -1,9 +1,15 @@
 #include <define.h>
 
-MODULE MOD_LuLcc_Vars_TimeInvariants
-! -------------------------------
+MODULE MOD_Lulcc_Vars_TimeInvariants
+! ======================================================================
 ! Created by Hua Yuan, 04/2022
-! -------------------------------
+!
+! !REVISIONS:
+!
+! 07/2023, Wenzong Dong: porting to MPI version
+! 08/2023, Hua Yuan: unified PFT and PC process
+!
+! ======================================================================
 
   USE MOD_Precision
   USE MOD_Vars_Global
@@ -11,34 +17,32 @@ MODULE MOD_LuLcc_Vars_TimeInvariants
 
   IMPLICIT NONE
   SAVE
-! -----------------------------------------------------------------
+!-----------------------------------------------------------------------
   ! for patch time invariant information
-  TYPE(pixelset_type)  :: landpatch_
-  TYPE(pixelset_type)  :: landelm_
-  INTEGER              :: numpatch_
-  INTEGER              :: numelm_
-  INTEGER              :: numpft_
-  INTEGER              :: numpc_
-  INTEGER              :: numurban_
-  INTEGER, allocatable :: patchclass_    (:)  !index of land cover type
-  INTEGER, allocatable :: patchtype_     (:)  !land water type
+  type(pixelset_type)  :: landpatch_
+  type(pixelset_type)  :: landelm_
+  integer              :: numpatch_
+  integer              :: numelm_
+  integer              :: numpft_
+  integer              :: numpc_
+  integer              :: numurban_
+  integer, allocatable :: patchclass_    (:)  !index of land cover type
+  integer, allocatable :: patchtype_     (:)  !land patch type
+  real(r8), allocatable:: csol_        (:,:)  !heat capacity of soil solids [J/(m3 K)]
 
-  ! for LULC_IGBP_PFT
-  INTEGER, allocatable :: pftclass_      (:)  !PFT type
-  INTEGER, allocatable :: patch_pft_s_   (:)  !start PFT index of a patch
-  INTEGER, allocatable :: patch_pft_e_   (:)  !end PFT index of a patch
-
-  ! for LULC_IGBP_PC
-  INTEGER, allocatable :: patch2pc_      (:)  !projection from patch to PC
+  ! for LULC_IGBP_PFT and LULC_IGBP_PC
+  integer, allocatable :: pftclass_      (:)  !PFT type
+  integer, allocatable :: patch_pft_s_   (:)  !start PFT index of a patch
+  integer, allocatable :: patch_pft_e_   (:)  !end PFT index of a patch
 
   ! for Urban model
-  INTEGER, allocatable :: urbclass_      (:)  !urban TYPE
-  INTEGER, allocatable :: patch2urban_   (:)  !projection from patch to Urban
+  integer, allocatable :: urbclass_      (:)  !urban type
+  integer, allocatable :: patch2urban_   (:)  !projection from patch to Urban
 
 ! PUBLIC MEMBER FUNCTIONS:
-  PUBLIC :: allocate_LuLccTimeInvariants
-  PUBLIC :: deallocate_LuLccTimeInvariants
-  PUBLIC :: SAVE_LuLccTimeInvariants
+  PUBLIC :: allocate_LulccTimeInvariants
+  PUBLIC :: deallocate_LulccTimeInvariants
+  PUBLIC :: SAVE_LulccTimeInvariants
 
 ! PRIVATE MEMBER FUNCTIONS:
 
@@ -48,21 +52,18 @@ MODULE MOD_LuLcc_Vars_TimeInvariants
 
 !-----------------------------------------------------------------------
 
-  SUBROUTINE allocate_LuLccTimeInvariants
+  SUBROUTINE allocate_LulccTimeInvariants
   ! --------------------------------------------------------------------
-  ! Allocates memory for LuLcc time invariant variables
+  ! Allocates memory for Lulcc time invariant variables
   ! --------------------------------------------------------------------
 
-     use MOD_SPMD_Task
+     USE MOD_SPMD_Task
      USE MOD_Precision
      USE MOD_Vars_Global
      USE MOD_LandPatch
      USE MOD_Mesh
-#ifdef LULC_IGBP_PFT
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
      USE MOD_LandPFT
-#endif
-#ifdef LULC_IGBP_PC
-     USE MOD_LandPC
 #endif
 #ifdef URBAN_MODEL
      USE MOD_LandUrban
@@ -87,18 +88,13 @@ MODULE MOD_LuLcc_Vars_TimeInvariants
 
            allocate (patchclass_                (numpatch))
            allocate (patchtype_                 (numpatch))
+           allocate (csol_              (nl_soil,numpatch))
 
-#ifdef LULC_IGBP_PFT
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
            IF (numpft > 0) THEN
               allocate (pftclass_                 (numpft))
               allocate (patch_pft_s_            (numpatch))
               allocate (patch_pft_e_            (numpatch))
-           ENDIF
-#endif
-
-#ifdef LULC_IGBP_PC
-           IF (numpc > 0) THEN
-              allocate (patch2pc_               (numpatch))
            ENDIF
 #endif
 
@@ -110,25 +106,22 @@ MODULE MOD_LuLcc_Vars_TimeInvariants
 #endif
         ENDIF
      ENDIF
-  END SUBROUTINE allocate_LuLccTimeInvariants
+  END SUBROUTINE allocate_LulccTimeInvariants
 
 
-  SUBROUTINE SAVE_LuLccTimeInvariants
+  SUBROUTINE SAVE_LulccTimeInvariants
 
      USE MOD_Precision
      USE MOD_Vars_Global
-     use MOD_SPMD_Task
+     USE MOD_SPMD_Task
      USE MOD_Pixelset
      USE MOD_Vars_TimeInvariants
      USE MOD_Landpatch
      USE MOD_Landelm
      USE MOD_Mesh
-#ifdef LULC_IGBP_PFT
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
      USE MOD_Vars_PFTimeInvariants
      USE MOD_LandPFT
-#endif
-#ifdef LULC_IGBP_PC
-     USE MOD_LandPC
 #endif
 #ifdef URBAN_MODEL
      USE MOD_LandUrban
@@ -144,20 +137,14 @@ MODULE MOD_LuLcc_Vars_TimeInvariants
            numelm_               = numelm
            patchclass_       (:) = patchclass       (:)
            patchtype_        (:) = patchtype        (:)
+           csol_           (:,:) = csol           (:,:)
 
-#ifdef LULC_IGBP_PFT
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
            IF (numpft > 0) THEN
               numpft_            = numpft
               pftclass_      (:) = pftclass         (:)
               patch_pft_s_   (:) = patch_pft_s      (:)
               patch_pft_e_   (:) = patch_pft_e      (:)
-           ENDIF
-#endif
-
-#ifdef LULC_IGBP_PC
-           IF (numpc > 0) THEN
-              numpc_             = numpc
-              patch2pc_      (:) = patch2pc         (:)
            ENDIF
 #endif
 
@@ -170,14 +157,14 @@ MODULE MOD_LuLcc_Vars_TimeInvariants
 #endif
         ENDIF
      ENDIF
-  END SUBROUTINE SAVE_LuLccTimeInvariants
+  END SUBROUTINE SAVE_LulccTimeInvariants
 
 
-  SUBROUTINE deallocate_LuLccTimeInvariants
-      use MOD_SPMD_Task
+  SUBROUTINE deallocate_LulccTimeInvariants
+      USE MOD_SPMD_Task
       USE MOD_PixelSet
 ! --------------------------------------------------
-! Deallocates memory for LuLcc time invariant variables
+! Deallocates memory for Lulcc time invariant variables
 ! --------------------------------------------------
      IF (p_is_worker) THEN
         IF (numpatch_ > 0) THEN
@@ -185,18 +172,13 @@ MODULE MOD_LuLcc_Vars_TimeInvariants
            CALL landelm_%forc_free_mem
            deallocate    (patchclass_   )
            deallocate    (patchtype_    )
+           deallocate    (csol_         )
 
-#ifdef LULC_IGBP_PFT
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
            IF (numpft_ > 0) THEN
               deallocate (pftclass_     )
               deallocate (patch_pft_s_  )
               deallocate (patch_pft_e_  )
-           ENDIF
-#endif
-
-#ifdef LULC_IGBP_PC
-           IF (numpc_ > 0) THEN
-              deallocate (patch2pc_     )
            ENDIF
 #endif
 
@@ -209,7 +191,7 @@ MODULE MOD_LuLcc_Vars_TimeInvariants
         ENDIF
      ENDIF
 
-  END SUBROUTINE deallocate_LuLccTimeInvariants
+  END SUBROUTINE deallocate_LulccTimeInvariants
 
-END MODULE MOD_LuLcc_Vars_TimeInvariants
+END MODULE MOD_Lulcc_Vars_TimeInvariants
 ! ---------- EOP ------------

@@ -48,6 +48,7 @@ MODULE MOD_NetCDFSerial
       MODULE procedure ncio_read_serial_real8_0d
       MODULE procedure ncio_read_serial_int8_1d
       MODULE procedure ncio_read_serial_int32_1d
+      MODULE procedure ncio_read_serial_int64_1d
       MODULE procedure ncio_read_serial_real8_1d
       MODULE procedure ncio_read_serial_int8_2d
       MODULE procedure ncio_read_serial_int16_2d
@@ -77,6 +78,10 @@ MODULE MOD_NetCDFSerial
       MODULE procedure ncio_read_part_serial_int32_2d
    END interface ncio_read_part_serial
 
+   interface ncio_read_period_serial
+      MODULE procedure ncio_read_period_serial_real8_2d
+   END interface ncio_read_period_serial
+
 
    interface ncio_define_dimension
       MODULE procedure ncio_define_dimension_int32
@@ -88,11 +93,13 @@ MODULE MOD_NetCDFSerial
       MODULE procedure ncio_write_serial_real8_0d
       MODULE procedure ncio_write_serial_int8_1d
       MODULE procedure ncio_write_serial_int32_1d
+      MODULE procedure ncio_write_serial_int64_1d
       MODULE procedure ncio_write_serial_real8_1d
       MODULE procedure ncio_write_serial_logical_1d
       MODULE procedure ncio_write_serial_int8_2d
       MODULE procedure ncio_write_serial_int16_2d
       MODULE procedure ncio_write_serial_int32_2d
+      MODULE procedure ncio_write_serial_int64_2d
       MODULE procedure ncio_write_serial_real4_2d
       MODULE procedure ncio_write_serial_real8_2d
       MODULE procedure ncio_write_serial_int32_3d
@@ -130,11 +137,7 @@ CONTAINS
             write(*,'(A)') 'Netcdf error: ' //trim(nf90_strerror(status))
          ENDIF
 
-#ifdef USEMPI
-         CALL mpi_abort (p_comm_glb, p_err)
-#else
-         stop 2
-#endif
+         CALL CoLM_stop ()
       ENDIF
 
    END SUBROUTINE nccheck
@@ -152,11 +155,7 @@ CONTAINS
       inquire (file=trim(filename), exist=fexists)
       IF (.not. fexists) THEN
          write(*,*) trim(filename), ' does not exist.'
-#ifdef USEMPI
-         CALL mpi_abort (p_comm_glb, p_err)
-#else
-         stop 2
-#endif
+         CALL CoLM_stop ()
       ENDIF
 
    END SUBROUTINE check_ncfile_exist
@@ -441,6 +440,34 @@ CONTAINS
       deallocate (varsize)
 
    END SUBROUTINE ncio_read_serial_int32_1d
+
+   !---------------------------------------------------------
+   SUBROUTINE ncio_read_serial_int64_1d (filename, dataname, rdata)
+
+      USE netcdf
+      IMPLICIT NONE
+
+      CHARACTER(len=*), intent(in) :: filename
+      CHARACTER(len=*), intent(in) :: dataname
+      INTEGER*8, allocatable, intent(out) :: rdata (:)
+
+      ! Local variables
+      INTEGER :: ncid, varid
+      INTEGER, allocatable :: varsize(:)
+
+      CALL check_ncfile_exist (filename)
+
+      CALL ncio_inquire_varsize(filename, dataname, varsize)
+      allocate (rdata (varsize(1)) )
+
+      CALL nccheck( nf90_open(trim(filename), NF90_NOWRITE, ncid) )
+      CALL nccheck( nf90_inq_varid(ncid, trim(dataname), varid) )
+      CALL nccheck( nf90_get_var(ncid, varid, rdata) )
+      CALL nccheck( nf90_close(ncid) )
+
+      deallocate (varsize)
+
+   END SUBROUTINE ncio_read_serial_int64_1d
 
 
    !---------------------------------------------------------
@@ -1005,6 +1032,38 @@ CONTAINS
 
    END SUBROUTINE ncio_read_part_serial_int32_2d
 
+   !---------------------------------------------------------
+   SUBROUTINE ncio_read_period_serial_real8_2d (filename, dataname, timestt, timeend, rdata)
+
+      USE netcdf
+      IMPLICIT NONE
+
+      CHARACTER(len=*), intent(in) :: filename
+      CHARACTER(len=*), intent(in) :: dataname
+      INTEGER, intent(in) :: timestt, timeend
+
+      real(r8), allocatable, intent(out) :: rdata (:,:,:)
+
+      ! Local variables
+      INTEGER :: ncid, varid
+      INTEGER, allocatable :: varsize(:)
+
+      CALL check_ncfile_exist (filename)
+   
+      CALL ncio_inquire_varsize (filename, dataname, varsize)
+
+      allocate (rdata (varsize(1), varsize(2), timestt:timeend) )
+
+      CALL nccheck( nf90_open(trim(filename), NF90_NOWRITE, ncid) )
+      CALL nccheck( nf90_inq_varid(ncid, trim(dataname), varid) )
+      CALL nccheck( nf90_get_var(ncid, varid, rdata, &
+         (/1,1,timestt/), (/varsize(1),varsize(2), timeend-timestt+1/)) )
+      CALL nccheck( nf90_close(ncid) )
+
+      deallocate(varsize)
+
+   END SUBROUTINE ncio_read_period_serial_real8_2d
+
    ! -------------------------------
    SUBROUTINE ncio_define_dimension_int32 (filename, dimname, dimlen)
 
@@ -1248,6 +1307,48 @@ CONTAINS
    END SUBROUTINE ncio_write_serial_int32_1d
 
    !---------------------------------------------------------
+   SUBROUTINE ncio_write_serial_int64_1d (filename, dataname, wdata, dimname, compress)
+
+      USE netcdf
+      IMPLICIT NONE
+
+      CHARACTER(len=*), intent(in) :: filename
+      CHARACTER(len=*), intent(in) :: dataname
+      INTEGER*8, intent(in) :: wdata (:)
+
+      CHARACTER(len=*), intent(in), optional :: dimname
+      INTEGER, intent(in), optional :: compress
+
+      ! Local variables
+      INTEGER :: ncid, varid, dimid, status
+
+      CALL nccheck( nf90_open(trim(filename), NF90_WRITE, ncid) )
+      status = nf90_inq_varid(ncid, trim(dataname), varid)
+      IF (status /= NF90_NOERR) THEN
+         IF (.not. present(dimname)) THEN
+            write(*,*) 'Warning: no dimension name for ', trim(dataname)
+            RETURN
+         ENDIF
+
+         CALL nccheck (nf90_inq_dimid(ncid, trim(dimname), dimid))
+
+         CALL nccheck (nf90_redef(ncid))
+         IF (present(compress)) THEN
+            CALL nccheck (nf90_def_var(ncid, trim(dataname), NF90_INT64, dimid, varid, &
+               deflate_level = compress))
+         ELSE
+            CALL nccheck (nf90_def_var(ncid, trim(dataname), NF90_INT64, dimid, varid))
+         ENDIF
+
+         CALL nccheck (nf90_enddef(ncid))
+      ENDIF
+
+      CALL nccheck( nf90_put_var(ncid, varid, wdata) )
+      CALL nccheck( nf90_close(ncid) )
+
+   END SUBROUTINE ncio_write_serial_int64_1d
+
+   !---------------------------------------------------------
    SUBROUTINE ncio_write_serial_real8_1d (filename, dataname, wdata, dimname, compress)
 
       USE netcdf
@@ -1454,6 +1555,50 @@ CONTAINS
       CALL nccheck( nf90_close(ncid) )
 
    END SUBROUTINE ncio_write_serial_int32_2d
+
+   !---------------------------------------------------------
+   SUBROUTINE ncio_write_serial_int64_2d (filename, dataname, wdata, &
+         dim1name, dim2name, compress)
+
+      USE netcdf
+      IMPLICIT NONE
+
+      CHARACTER(len=*), intent(in) :: filename
+      CHARACTER(len=*), intent(in) :: dataname
+      INTEGER*8, intent(in) :: wdata (:,:)
+
+      CHARACTER(len=*), intent(in), optional :: dim1name, dim2name
+      INTEGER, intent(in), optional :: compress
+
+      ! Local variables
+      INTEGER :: ncid, varid, dimid(2), status
+
+      CALL nccheck( nf90_open(trim(filename), NF90_WRITE, ncid) )
+      status = nf90_inq_varid(ncid, trim(dataname), varid)
+      IF (status /= NF90_NOERR) THEN
+         IF (.not. (present(dim1name) .and. present(dim2name))) THEN
+            write(*,*) 'Warning: no dimension name for ', trim(dataname)
+            RETURN
+         ENDIF
+
+         CALL nccheck (nf90_inq_dimid(ncid, trim(dim1name), dimid(1)))
+         CALL nccheck (nf90_inq_dimid(ncid, trim(dim2name), dimid(2)))
+
+         CALL nccheck (nf90_redef(ncid))
+         IF (present(compress)) THEN
+            CALL nccheck (nf90_def_var(ncid, trim(dataname), NF90_INT64, dimid, varid, &
+               deflate_level = compress))
+         ELSE
+            CALL nccheck (nf90_def_var(ncid, trim(dataname), NF90_INT64, dimid, varid))
+         ENDIF
+
+         CALL nccheck (nf90_enddef(ncid))
+      ENDIF
+
+      CALL nccheck( nf90_put_var(ncid, varid, wdata) )
+      CALL nccheck( nf90_close(ncid) )
+
+   END SUBROUTINE ncio_write_serial_int64_2d
 
    !---------------------------------------------------------
    SUBROUTINE ncio_write_serial_real4_2d (filename, dataname, wdata, &

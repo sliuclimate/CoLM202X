@@ -20,6 +20,9 @@ module MOD_HistGridded
    use MOD_Mapping_Pset2Grid
    USE MOD_Namelist
    USE MOD_NetCDFSerial
+#ifdef USEMPI
+   USE MOD_HistWriteBack
+#endif
 
    type(grid_type), target :: ghist
    type(mapping_pset2grid_type) :: mp2g_hist
@@ -42,6 +45,9 @@ contains
 #ifdef URBAN_MODEL
       USE MOD_LandUrban
 #endif
+#ifdef CROP
+      USE MOD_LandCrop
+#endif
       use MOD_Mapping_Pset2Grid
       use MOD_Vars_1DAccFluxes
       USE MOD_Forcing, only : gforc
@@ -61,7 +67,7 @@ contains
 #ifndef CROP
       call mp2g_hist%build (landpatch, ghist)
 #else
-      call mp2g_hist%build (landpatch, ghist, pctcrop)
+      call mp2g_hist%build (landpatch, ghist, pctshrpch)
 #endif
 
 #ifdef URBAN_MODEL
@@ -141,13 +147,8 @@ contains
       end if
 
       compress = DEF_HIST_COMPRESS_LEVEL
-      call hist_write_var_real8_2d (file_hist, varname, ghist, itime_in_file, flux_xy_2d, compress)
-
-      IF (p_is_master .and. (itime_in_file == 1) .and. (trim(DEF_HIST_mode) == 'one')) then
-         CALL ncio_put_attr (file_hist, varname, 'long_name', longname)
-         CALL ncio_put_attr (file_hist, varname, 'units', units)
-         CALL ncio_put_attr (file_hist, varname, 'missing_value', spval)
-      ENDIF
+      call hist_write_var_real8_2d (file_hist, varname, ghist, itime_in_file, &
+         flux_xy_2d, compress, longname, units)
 
    end subroutine flux_map_and_write_2d
 
@@ -212,13 +213,8 @@ contains
       end if
 
       compress = DEF_HIST_COMPRESS_LEVEL
-      call hist_write_var_real8_2d (file_hist, varname, ghist, itime_in_file, flux_xy_2d, compress)
-
-      IF (p_is_master .and. (itime_in_file == 1) .and. (trim(DEF_HIST_mode) == 'one')) then
-         CALL ncio_put_attr (file_hist, varname, 'long_name', longname)
-         CALL ncio_put_attr (file_hist, varname, 'units', units)
-         CALL ncio_put_attr (file_hist, varname, 'missing_value', spval)
-      ENDIF
+      call hist_write_var_real8_2d (file_hist, varname, ghist, itime_in_file, flux_xy_2d, &
+         compress, longname, units)
 
    end subroutine flux_map_and_write_urb_2d
 
@@ -292,13 +288,7 @@ contains
 
       compress = DEF_HIST_COMPRESS_LEVEL
       call hist_write_var_real8_3d (file_hist, varname, dim1name, ghist, &
-         itime_in_file, flux_xy_3d, compress)
-
-      IF (p_is_master .and. (itime_in_file == 1) .and. (trim(DEF_HIST_mode) == 'one')) then
-         CALL ncio_put_attr (file_hist, varname, 'long_name', longname)
-         CALL ncio_put_attr (file_hist, varname, 'units', units)
-         CALL ncio_put_attr (file_hist, varname, 'missing_value', spval)
-      ENDIF
+         itime_in_file, flux_xy_3d, compress, longname, units)
 
    end subroutine flux_map_and_write_3d
 
@@ -375,13 +365,7 @@ contains
 
       compress = DEF_HIST_COMPRESS_LEVEL
       call hist_write_var_real8_4d (file_hist, varname, dim1name, dim2name, &
-         ghist, itime_in_file, flux_xy_4d, compress)
-
-      IF (p_is_master .and. (itime_in_file == 1) .and. (trim(DEF_HIST_mode) == 'one')) then
-         CALL ncio_put_attr (file_hist, varname, 'long_name', longname)
-         CALL ncio_put_attr (file_hist, varname, 'units', units)
-         CALL ncio_put_attr (file_hist, varname, 'missing_value', spval)
-      ENDIF
+         ghist, itime_in_file, flux_xy_4d, compress, longname, units)
 
    end subroutine flux_map_and_write_4d
 
@@ -455,13 +439,7 @@ contains
 
       compress = DEF_HIST_COMPRESS_LEVEL
       call hist_write_var_real8_2d (file_hist, varname, ghist, itime_in_file, flux_xy_2d, &
-         compress)
-
-      IF (p_is_master .and. (itime_in_file == 1) .and. (trim(DEF_HIST_mode) == 'one')) then
-         CALL ncio_put_attr (file_hist, varname, 'long_name', longname)
-         CALL ncio_put_attr (file_hist, varname, 'units', units)
-         CALL ncio_put_attr (file_hist, varname, 'missing_value', spval)
-      ENDIF
+         compress, longname, units)
 
    end subroutine flux_map_and_write_ln
 
@@ -488,6 +466,11 @@ contains
 
       if (trim(DEF_HIST_mode) == 'one') then
          if (p_is_master) then
+#ifdef USEMPI
+            IF (DEF_HIST_WriteBack) THEN
+               CALL hist_writeback_latlon_time (filename, dataname, time, hist_concat)
+            ELSE
+#endif
             inquire (file=filename, exist=fexists)
             if (.not. fexists) then
                call ncio_create_file (trim(filename))
@@ -510,9 +493,19 @@ contains
                call ncio_write_serial (filename, 'lon_e', hist_concat%ginfo%lon_e, 'lon')
 #endif
             endif
+         
             call ncio_write_time (filename, dataname, time, itime, DEF_HIST_FREQ)
 
+#ifdef USEMPI
+            ENDIF
+#endif
          ENDIF
+
+#ifdef USEMPI
+         IF (.not. DEF_HIST_WriteBack) THEN
+            CALL mpi_bcast (itime, 1, MPI_INTEGER, p_root, p_comm_glb, p_err)
+         ENDIF
+#endif
 
       elseif (trim(DEF_HIST_mode) == 'block') then
 
@@ -538,13 +531,17 @@ contains
             end do
 
          end if
+#ifdef USEMPI
+         IF (.not. p_is_master) CALL mpi_bcast (itime, 1, MPI_INTEGER, p_root, p_comm_group, p_err)
+#endif
+
       endif
 
    end subroutine hist_gridded_write_time
 
    !----------------------------------------------------------------------------
    subroutine hist_write_var_real8_2d ( &
-         filename, dataname, grid, itime, wdata, compress)
+         filename, dataname, grid, itime, wdata, compress, longname, units)
 
       use MOD_Namelist
       use MOD_Block
@@ -562,6 +559,8 @@ contains
       type (block_data_real8_2d), intent(in) :: wdata
 
       integer, intent(in) :: compress
+      character(len=*), intent(in) :: longname
+      character(len=*), intent(in) :: units
 
       ! Local variables
       integer :: iblkme, iblk, jblk, idata, ixseg, iyseg
@@ -574,33 +573,43 @@ contains
 
          if (p_is_master) then
 
+#ifdef USEMPI
+            IF (.not. DEF_HIST_WriteBack) THEN
+               
+               allocate (vdata (hist_concat%ginfo%nlon, hist_concat%ginfo%nlat))
+               vdata(:,:) = spval
+
+               do idata = 1, hist_concat%ndatablk
+                  call mpi_recv (rmesg, 3, MPI_INTEGER, MPI_ANY_SOURCE, &
+                     hist_data_id, p_comm_glb, p_stat, p_err)
+
+                  isrc  = rmesg(1)
+                  ixseg = rmesg(2)
+                  iyseg = rmesg(3)
+
+                  xgdsp = hist_concat%xsegs(ixseg)%gdsp
+                  ygdsp = hist_concat%ysegs(iyseg)%gdsp
+                  xcnt = hist_concat%xsegs(ixseg)%cnt
+                  ycnt = hist_concat%ysegs(iyseg)%cnt
+
+                  allocate (rbuf(xcnt,ycnt))
+
+                  call mpi_recv (rbuf, xcnt*ycnt, MPI_DOUBLE, &
+                     isrc, hist_data_id, p_comm_glb, p_stat, p_err)
+
+                  vdata (xgdsp+1:xgdsp+xcnt, ygdsp+1:ygdsp+ycnt) = rbuf
+                  deallocate (rbuf)
+
+               end do
+            
+            ELSE
+               CALL hist_writeback_var_header (hist_data_id, filename, dataname, &
+                  2, 'lon', 'lat', 'time', '', '', compress, longname, units)
+            ENDIF
+#else
             allocate (vdata (hist_concat%ginfo%nlon, hist_concat%ginfo%nlat))
             vdata(:,:) = spval
 
-#ifdef USEMPI
-            do idata = 1, hist_concat%ndatablk
-               call mpi_recv (rmesg, 3, MPI_INTEGER, MPI_ANY_SOURCE, &
-                  hist_data_id, p_comm_glb, p_stat, p_err)
-
-               isrc  = rmesg(1)
-               ixseg = rmesg(2)
-               iyseg = rmesg(3)
-
-               xgdsp = hist_concat%xsegs(ixseg)%gdsp
-               ygdsp = hist_concat%ysegs(iyseg)%gdsp
-               xcnt = hist_concat%xsegs(ixseg)%cnt
-               ycnt = hist_concat%ysegs(iyseg)%cnt
-
-               allocate (rbuf(xcnt,ycnt))
-
-               call mpi_recv (rbuf, xcnt*ycnt, MPI_DOUBLE, &
-                  isrc, hist_data_id, p_comm_glb, p_stat, p_err)
-
-               vdata (xgdsp+1:xgdsp+xcnt, ygdsp+1:ygdsp+ycnt) = rbuf
-               deallocate (rbuf)
-
-            end do
-#else
             do iyseg = 1, hist_concat%nyseg
                do ixseg = 1, hist_concat%nxseg
                   iblk = hist_concat%xsegs(ixseg)%blk
@@ -620,10 +629,23 @@ contains
             end do
 #endif
 
-            call ncio_write_serial_time (filename, dataname, itime, vdata, &
-               'lon', 'lat', 'time', compress)
+#ifdef USEMPI
+            IF (.not. DEF_HIST_WriteBack) THEN
+#endif
+               call ncio_write_serial_time (filename, dataname, itime, vdata, &
+                  'lon', 'lat', 'time', compress)
 
-            deallocate (vdata)
+               IF (itime == 1) then
+                  CALL ncio_put_attr (filename, dataname, 'long_name', longname)
+                  CALL ncio_put_attr (filename, dataname, 'units', units)
+                  CALL ncio_put_attr (filename, dataname, 'missing_value', spval)
+               ENDIF
+            
+               deallocate (vdata)
+#ifdef USEMPI
+            ENDIF
+#endif
+
          ENDIF
 
 #ifdef USEMPI
@@ -644,11 +666,15 @@ contains
                      allocate (sbuf (xcnt,ycnt))
                      sbuf = wdata%blk(iblk,jblk)%val(xbdsp+1:xbdsp+xcnt,ybdsp+1:ybdsp+ycnt)
 
-                     smesg = (/p_iam_glb, ixseg, iyseg/)
-                     call mpi_send (smesg, 3, MPI_INTEGER, &
-                        p_root, hist_data_id, p_comm_glb, p_err)
-                     call mpi_send (sbuf, xcnt*ycnt, MPI_DOUBLE, &
-                        p_root, hist_data_id, p_comm_glb, p_err)
+                     IF (.not. DEF_HIST_WriteBack) THEN
+                        smesg = (/p_iam_glb, ixseg, iyseg/)
+                        call mpi_send (smesg, 3, MPI_INTEGER, &
+                           p_root, hist_data_id, p_comm_glb, p_err)
+                        call mpi_send (sbuf, xcnt*ycnt, MPI_DOUBLE, &
+                           p_root, hist_data_id, p_comm_glb, p_err)
+                     ELSE
+                        CALL hist_writeback_var (hist_data_id, ixseg, iyseg, wdata2d = sbuf)
+                     ENDIF
 
                      deallocate (sbuf)
 
@@ -684,7 +710,7 @@ contains
 
    !----------------------------------------------------------------------------
    subroutine hist_write_var_real8_3d ( &
-         filename, dataname, dim1name, grid, itime, wdata, compress)
+         filename, dataname, dim1name, grid, itime, wdata, compress, longname, units)
 
       use MOD_Namelist
       use MOD_Block
@@ -703,6 +729,8 @@ contains
       type (block_data_real8_3d), intent(in) :: wdata
 
       integer, intent(in) :: compress
+      character(len=*), intent(in) :: longname
+      character(len=*), intent(in) :: units
 
       ! Local variables
       integer :: iblkme, iblk, jblk, idata, ixseg, iyseg
@@ -716,35 +744,42 @@ contains
          if (p_is_master) then
 
 #ifdef USEMPI
-            do idata = 1, hist_concat%ndatablk
+            IF (.not. DEF_HIST_WriteBack) THEN
 
-               call mpi_recv (rmesg, 4, MPI_INTEGER, MPI_ANY_SOURCE, &
-                  hist_data_id, p_comm_glb, p_stat, p_err)
+               do idata = 1, hist_concat%ndatablk
 
-               isrc  = rmesg(1)
-               ixseg = rmesg(2)
-               iyseg = rmesg(3)
-               ndim1 = rmesg(4)
+                  call mpi_recv (rmesg, 4, MPI_INTEGER, MPI_ANY_SOURCE, &
+                     hist_data_id, p_comm_glb, p_stat, p_err)
 
-               xgdsp = hist_concat%xsegs(ixseg)%gdsp
-               ygdsp = hist_concat%ysegs(iyseg)%gdsp
-               xcnt = hist_concat%xsegs(ixseg)%cnt
-               ycnt = hist_concat%ysegs(iyseg)%cnt
+                  isrc  = rmesg(1)
+                  ixseg = rmesg(2)
+                  iyseg = rmesg(3)
+                  ndim1 = rmesg(4)
 
-               allocate (rbuf (ndim1,xcnt,ycnt))
+                  xgdsp = hist_concat%xsegs(ixseg)%gdsp
+                  ygdsp = hist_concat%ysegs(iyseg)%gdsp
+                  xcnt = hist_concat%xsegs(ixseg)%cnt
+                  ycnt = hist_concat%ysegs(iyseg)%cnt
 
-               call mpi_recv (rbuf, ndim1 * xcnt * ycnt, MPI_DOUBLE, &
-                  isrc, hist_data_id, p_comm_glb, p_stat, p_err)
+                  allocate (rbuf (ndim1,xcnt,ycnt))
 
-               IF (idata == 1) THEN
-                  allocate (vdata (ndim1, hist_concat%ginfo%nlon, hist_concat%ginfo%nlat))
-                  vdata(:,:,:) = spval
-               ENDIF
+                  call mpi_recv (rbuf, ndim1 * xcnt * ycnt, MPI_DOUBLE, &
+                     isrc, hist_data_id, p_comm_glb, p_stat, p_err)
 
-               vdata (:,xgdsp+1:xgdsp+xcnt,ygdsp+1:ygdsp+ycnt) = rbuf
+                  IF (idata == 1) THEN
+                     allocate (vdata (ndim1, hist_concat%ginfo%nlon, hist_concat%ginfo%nlat))
+                     vdata(:,:,:) = spval
+                  ENDIF
 
-               deallocate (rbuf)
-            end do
+                  vdata (:,xgdsp+1:xgdsp+xcnt,ygdsp+1:ygdsp+ycnt) = rbuf
+
+                  deallocate (rbuf)
+               end do
+            
+            ELSE
+               CALL hist_writeback_var_header (hist_data_id, filename, dataname, &
+                  3, dim1name, 'lon', 'lat', 'time', '', compress, longname, units)
+            ENDIF
 #else
             ndim1 = wdata%ub1 - wdata%lb1 + 1
             allocate (vdata (ndim1, hist_concat%ginfo%nlon, hist_concat%ginfo%nlat))
@@ -769,12 +804,25 @@ contains
             ENDDO
 #endif
 
-            call ncio_define_dimension (filename, dim1name, ndim1)
 
-            call ncio_write_serial_time (filename, dataname, itime, &
-               vdata, dim1name, 'lon', 'lat', 'time', compress)
+#ifdef USEMPI
+            IF (.not. DEF_HIST_WriteBack) THEN
+#endif
+               call ncio_define_dimension (filename, dim1name, ndim1)
 
-            deallocate (vdata)
+               call ncio_write_serial_time (filename, dataname, itime, &
+                  vdata, dim1name, 'lon', 'lat', 'time', compress)
+
+               IF (itime == 1) then
+                  CALL ncio_put_attr (filename, dataname, 'long_name', longname)
+                  CALL ncio_put_attr (filename, dataname, 'units', units)
+                  CALL ncio_put_attr (filename, dataname, 'missing_value', spval)
+               ENDIF
+               
+               deallocate (vdata)
+#ifdef USEMPI
+            ENDIF
+#endif
          ENDIF
 
 #ifdef USEMPI
@@ -797,11 +845,15 @@ contains
                      allocate (sbuf (ndim1,xcnt,ycnt))
                      sbuf = wdata%blk(iblk,jblk)%val(:,xbdsp+1:xbdsp+xcnt,ybdsp+1:ybdsp+ycnt)
 
-                     smesg = (/p_iam_glb, ixseg, iyseg, ndim1/)
-                     call mpi_send (smesg, 4, MPI_INTEGER, &
-                        p_root, hist_data_id, p_comm_glb, p_err)
-                     call mpi_send (sbuf, ndim1*xcnt*ycnt, MPI_DOUBLE, &
-                        p_root, hist_data_id, p_comm_glb, p_err)
+                     IF (.not. DEF_HIST_WriteBack) THEN
+                        smesg = (/p_iam_glb, ixseg, iyseg, ndim1/)
+                        call mpi_send (smesg, 4, MPI_INTEGER, &
+                           p_root, hist_data_id, p_comm_glb, p_err)
+                        call mpi_send (sbuf, ndim1*xcnt*ycnt, MPI_DOUBLE, &
+                           p_root, hist_data_id, p_comm_glb, p_err)
+                     ELSE
+                        CALL hist_writeback_var (hist_data_id, ixseg, iyseg, wdata3d = sbuf)
+                     ENDIF
 
                      deallocate (sbuf)
                   end if
@@ -838,7 +890,7 @@ contains
 
    !----------------------------------------------------------------------------
    subroutine hist_write_var_real8_4d ( &
-         filename, dataname, dim1name, dim2name, grid, itime, wdata, compress)
+         filename, dataname, dim1name, dim2name, grid, itime, wdata, compress, longname, units)
 
       use MOD_Namelist
       use MOD_Block
@@ -857,6 +909,8 @@ contains
       type (block_data_real8_4d), intent(in) :: wdata
 
       integer, intent(in) :: compress
+      character(len=*), intent(in) :: longname
+      character(len=*), intent(in) :: units
 
       ! Local variables
       integer :: iblkme, iblk, jblk, idata, ixseg, iyseg
@@ -870,36 +924,43 @@ contains
          if (p_is_master) then
 
 #ifdef USEMPI
-            do idata = 1, hist_concat%ndatablk
+            IF (.not. DEF_HIST_WriteBack) THEN
 
-               call mpi_recv (rmesg, 5, MPI_INTEGER, MPI_ANY_SOURCE, &
-                  hist_data_id, p_comm_glb, p_stat, p_err)
+               do idata = 1, hist_concat%ndatablk
 
-               isrc  = rmesg(1)
-               ixseg = rmesg(2)
-               iyseg = rmesg(3)
-               ndim1 = rmesg(4)
-               ndim2 = rmesg(4)
+                  call mpi_recv (rmesg, 5, MPI_INTEGER, MPI_ANY_SOURCE, &
+                     hist_data_id, p_comm_glb, p_stat, p_err)
 
-               xgdsp = hist_concat%xsegs(ixseg)%gdsp
-               ygdsp = hist_concat%ysegs(iyseg)%gdsp
-               xcnt = hist_concat%xsegs(ixseg)%cnt
-               ycnt = hist_concat%ysegs(iyseg)%cnt
+                  isrc  = rmesg(1)
+                  ixseg = rmesg(2)
+                  iyseg = rmesg(3)
+                  ndim1 = rmesg(4)
+                  ndim2 = rmesg(4)
 
-               allocate (rbuf (ndim1,ndim2,xcnt,ycnt))
+                  xgdsp = hist_concat%xsegs(ixseg)%gdsp
+                  ygdsp = hist_concat%ysegs(iyseg)%gdsp
+                  xcnt = hist_concat%xsegs(ixseg)%cnt
+                  ycnt = hist_concat%ysegs(iyseg)%cnt
 
-               call mpi_recv (rbuf, ndim1*ndim2*xcnt*ycnt, MPI_DOUBLE, &
-                  isrc, hist_data_id, p_comm_glb, p_stat, p_err)
+                  allocate (rbuf (ndim1,ndim2,xcnt,ycnt))
 
-               IF (idata == 1) THEN
-                  allocate (vdata (ndim1,ndim2,hist_concat%ginfo%nlon,hist_concat%ginfo%nlat))
-                  vdata(:,:,:,:) = spval
-               ENDIF
+                  call mpi_recv (rbuf, ndim1*ndim2*xcnt*ycnt, MPI_DOUBLE, &
+                     isrc, hist_data_id, p_comm_glb, p_stat, p_err)
 
-               vdata (:,:,xgdsp+1:xgdsp+xcnt,ygdsp+1:ygdsp+ycnt) = rbuf
+                  IF (idata == 1) THEN
+                     allocate (vdata (ndim1,ndim2,hist_concat%ginfo%nlon,hist_concat%ginfo%nlat))
+                     vdata(:,:,:,:) = spval
+                  ENDIF
 
-               deallocate (rbuf)
-            end do
+                  vdata (:,:,xgdsp+1:xgdsp+xcnt,ygdsp+1:ygdsp+ycnt) = rbuf
+
+                  deallocate (rbuf)
+               end do
+
+            ELSE
+               CALL hist_writeback_var_header (hist_data_id, filename, dataname, &
+                  4, dim1name, dim2name, 'lon', 'lat', 'time', compress, longname, units)
+            ENDIF
 #else
             ndim1 = wdata%ub1 - wdata%lb1 + 1
             ndim2 = wdata%ub2 - wdata%lb2 + 1
@@ -926,13 +987,25 @@ contains
 
 #endif
 
-            call ncio_define_dimension (filename, dim1name, ndim1)
-            call ncio_define_dimension (filename, dim2name, ndim2)
+#ifdef USEMPI
+            IF (.not. DEF_HIST_WriteBack) THEN
+#endif
+               call ncio_define_dimension (filename, dim1name, ndim1)
+               call ncio_define_dimension (filename, dim2name, ndim2)
 
-            call ncio_write_serial_time (filename, dataname, itime, vdata, dim1name, dim2name, &
-                  'lon', 'lat', 'time', compress)
+               call ncio_write_serial_time (filename, dataname, itime, vdata, &
+                  dim1name, dim2name, 'lon', 'lat', 'time', compress)
+               
+               IF (itime == 1) then
+                  CALL ncio_put_attr (filename, dataname, 'long_name', longname)
+                  CALL ncio_put_attr (filename, dataname, 'units', units)
+                  CALL ncio_put_attr (filename, dataname, 'missing_value', spval)
+               ENDIF
 
-            deallocate (vdata)
+               deallocate (vdata)
+#ifdef USEMPI
+            ENDIF
+#endif
          ENDIF
 
 #ifdef USEMPI
@@ -956,11 +1029,15 @@ contains
                      allocate (sbuf (ndim1,ndim2,xcnt,ycnt))
                      sbuf = wdata%blk(iblk,jblk)%val(:,:,xbdsp+1:xbdsp+xcnt,ybdsp+1:ybdsp+ycnt)
 
-                     smesg = (/p_iam_glb, ixseg, iyseg, ndim1, ndim2/)
-                     call mpi_send (smesg, 5, MPI_INTEGER, &
-                        p_root, hist_data_id, p_comm_glb, p_err)
-                     call mpi_send (sbuf, ndim1*ndim2*xcnt*ycnt, MPI_DOUBLE, &
-                        p_root, hist_data_id, p_comm_glb, p_err)
+                     IF (.not. DEF_HIST_WriteBack) THEN
+                        smesg = (/p_iam_glb, ixseg, iyseg, ndim1, ndim2/)
+                        call mpi_send (smesg, 5, MPI_INTEGER, &
+                           p_root, hist_data_id, p_comm_glb, p_err)
+                        call mpi_send (sbuf, ndim1*ndim2*xcnt*ycnt, MPI_DOUBLE, &
+                           p_root, hist_data_id, p_comm_glb, p_err)
+                     ELSE
+                        CALL hist_writeback_var (hist_data_id, ixseg, iyseg, wdata4d = sbuf)
+                     ENDIF
 
                      deallocate (sbuf)
                   end if

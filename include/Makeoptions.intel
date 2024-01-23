@@ -2,10 +2,12 @@
 # mpif90 - ifort 
 # 
 
- FF = /opt/mpich-3.4.2-intel/bin/mpif90
+ FF = mpif90 -f90=ifort
 
- NETCDF_LIB = /opt/netcdf/lib
- NETCDF_INC = /opt/netcdf/include
+ NETCDF_LIB = /usr/lib/x86_64-linux-gnu
+ NETCDF_INC = /usr/include
+
+ MATH_LIB = /share/home/dq013/software//miniconda3/lib/  #MKL LIB_PATH
 
  MOD_CMD = -module 
 
@@ -34,4 +36,3 @@ FCMP = ifort -qopenmp
 FC = ifort
 LFLAGS =
 FFLAGS = -O3 -warn all -fpp -free -assume byterecl -heap-arrays -nogen-interface -lpthread -static-intel
-

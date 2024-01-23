@@ -32,21 +32,24 @@ MODULE MOD_Namelist
    INTEGER :: DEF_PIO_groupsize = 12
 
    ! ----- For Single Point -----
-#ifdef SinglePoint
-   
-   CHARACTER(len=256) :: SITE_fsrfdata  = 'null'
 
-   LOGICAL  :: USE_SITE_pctpfts         = .true.
-   LOGICAL  :: USE_SITE_pctcrop         = .true.
-   LOGICAL  :: USE_SITE_htop            = .true.
-   LOGICAL  :: USE_SITE_LAI             = .true.
-   LOGICAL  :: USE_SITE_lakedepth       = .true.
-   LOGICAL  :: USE_SITE_soilreflectance = .true.
-   LOGICAL  :: USE_SITE_soilparameters  = .true.
-   LOGICAL  :: USE_SITE_dbedrock        = .true.
-   LOGICAL  :: USE_SITE_topography      = .true.
-   logical  :: USE_SITE_HistWriteBack   = .true.
-#endif
+   CHARACTER(len=256) :: SITE_fsrfdata   = 'null'
+
+   LOGICAL  :: USE_SITE_pctpfts          = .true.
+   LOGICAL  :: USE_SITE_pctcrop          = .true.
+   LOGICAL  :: USE_SITE_htop             = .true.
+   LOGICAL  :: USE_SITE_LAI              = .true.
+   LOGICAL  :: USE_SITE_lakedepth        = .true.
+   LOGICAL  :: USE_SITE_soilreflectance  = .true.
+   LOGICAL  :: USE_SITE_soilparameters   = .true.
+   LOGICAL  :: USE_SITE_dbedrock         = .true.
+   LOGICAL  :: USE_SITE_topography       = .true.
+   logical  :: USE_SITE_HistWriteBack    = .true.
+   logical  :: USE_SITE_ForcingReadAhead = .true.
+   LOGICAL  :: USE_SITE_urban_paras      = .true.
+   LOGICAL  :: USE_SITE_thermal_paras    = .false.
+   LOGICAL  :: USE_SITE_urban_LAI        = .false.
+
 
    ! ----- simulation time type -----
    TYPE nl_simulation_time_type
@@ -64,7 +67,7 @@ MODULE MOD_Namelist
       INTEGER  :: spinup_day  = 1
       INTEGER  :: spinup_sec  = 0
       INTEGER  :: spinup_repeat = 1
-      REAL(r8) :: timestep    = 3600.
+      REAL(r8) :: timestep    = 1800.
    END TYPE nl_simulation_time_type
 
    TYPE (nl_simulation_time_type) :: DEF_simulation_time
@@ -95,18 +98,39 @@ MODULE MOD_Namelist
    !         only available for USGS/IGBP/PFT CLASSIFICATION
    LOGICAL :: USE_srfdata_from_3D_gridded_data = .false.
 
+   ! ----- Subgrid scheme -----
+   logical :: DEF_USE_USGS = .false.
+   logical :: DEF_USE_IGBP = .false.
+   logical :: DEF_USE_LCT  = .false.
+   logical :: DEF_USE_PFT  = .false.
+   logical :: DEF_USE_PC   = .false.
+   logical :: DEF_SOLO_PFT = .false.
+   logical :: DEF_FAST_PC  = .false.
+   CHARACTER(len=256) :: DEF_SUBGRID_SCHEME = 'LCT'
+
+   ! ----- compress data in aggregation when send data from IO to worker -----
+   logical :: USE_zip_for_aggregation = .true.
+
    ! ----- Leaf Area Index -----
    !add by zhongwang wei @ sysu 2021/12/23
    !To allow read satellite observed LAI
    ! 06/2023, note by hua yuan: change DEF_LAI_CLIM to DEF_LAI_MONTHLY
    logical :: DEF_LAI_MONTHLY = .true.
-   INTEGER :: DEF_Interception_scheme = 1  !1:CoLM；2:CLM4.5; 3:CLM5; 4:Noah-MP; 5:MATSIRO; 6:VIC
+   ! ----- Atmospheric Nitrogen Deposition -----
+   !add by Fang Shang @ pku 2023/08
+   !1: To allow annuaul ndep data to be read in
+   !2: To allow monthly ndep data to be read in
+   INTEGER :: DEF_NDEP_FREQUENCY = 1
+   INTEGER :: DEF_Interception_scheme = 1  !1:CoLM；2:CLM4.5; 3:CLM5; 4:Noah-MP; 5:MATSIRO; 6:VIC; 7:JULES
 
    ! ------LAI change and Land cover year setting ----------
    ! 06/2023, add by wenzong dong and hua yuan: use for updating LAI with simulation year
    LOGICAL :: DEF_LAI_CHANGE_YEARLY = .true.
    ! 05/2023, add by Xingjie Lu: use for updating LAI with leaf carbon
-   LOGICAL :: DEF_USE_LAIFEEDBACK = .true.
+   LOGICAL :: DEF_USE_LAIFEEDBACK = .false.
+
+   ! use irrigation
+   LOGICAL :: DEF_USE_IRRIGATION = .false.
 
    ! 06/2023, add by hua yuan and wenzong dong
    ! ------ Land use and land cover (LULC) related -------
@@ -116,11 +140,15 @@ MODULE MOD_Namelist
 
    ! Options for LULCC year-to-year transfer schemes
    ! 1: Same Type Assignment scheme (STA), state variables assignment for the same TYPE (LC, PFT or PC)
-   ! 2: Energy and Mass Conservation scheme (EMC), DO energy and mass conservation calculation
+   ! 2: Mass and Energy Conservation scheme (MEC), DO mass and energy conservation calculation
    INTEGER :: DEF_LULCC_SCHEME = 1
 
    ! ------ Urban model related -------
-   !INTEGER :: DEF_URBAN_type_scheme = 1
+   ! Options for urban type scheme
+   ! 1: NCAR Urban Classification, 3 urban type with Tall Building, High Density and Medium Density
+   ! 2: LCZ Classification, 10 urban type with LCZ 1-10
+   INTEGER :: DEF_URBAN_type_scheme = 1
+   LOGICAL :: DEF_URBAN_ONLY   = .false.
    logical :: DEF_URBAN_RUN    = .false.
    LOGICAL :: DEF_URBAN_BEM    = .true.
    LOGICAL :: DEF_URBAN_TREE   = .true.
@@ -147,16 +175,32 @@ MODULE MOD_Namelist
    ! 2: Read a global soil color map from CLM
    INTEGER :: DEF_SOIL_REFL_SCHEME = 2
 
+   ! Options for soil surface resistance schemes
+   ! 0: NONE soil surface resistance
+   ! 1: SL14, Swenson and Lawrence (2014)
+   ! 2: SZ09, Sakaguchi and Zeng (2009)
+   ! 3: TR13, Tang and Riley (2013)
+   ! 4: LP92, Lee and Pielke (1992)
+   ! 5: S92,  Sellers et al (1992)
+   INTEGER :: DEF_RSS_SCHEME = 1
+
+
+   ! Treat exposed soil and snow surface separatly, including
+   ! solar absorption, sensible/latent heat, ground temperature,
+   ! ground heat flux and groud evp/dew/subl/fros.
+   ! Corresponding vars are named as ***_soil, ***_snow.
+   logical :: DEF_SPLIT_SOILSNOW = .false.
+
    ! ----- Model settings -----
-   LOGICAL :: DEF_LANDONLY                    = .true.
-   LOGICAL :: DEF_USE_DOMINANT_PATCHTYPE      = .false.
-   LOGICAL :: DEF_USE_VARIABLY_SATURATED_FLOW = .true.
-   LOGICAL :: DEF_USE_BEDROCK                 = .false.
-   LOGICAL :: DEF_USE_OZONESTRESS             = .false.
-   LOGICAL :: DEF_USE_OZONEDATA               = .false.
+   LOGICAL :: DEF_LANDONLY                  = .true.
+   LOGICAL :: DEF_USE_DOMINANT_PATCHTYPE    = .false.
+   LOGICAL :: DEF_USE_VariablySaturatedFlow = .true.
+   LOGICAL :: DEF_USE_BEDROCK               = .false.
+   LOGICAL :: DEF_USE_OZONESTRESS           = .false.
+   LOGICAL :: DEF_USE_OZONEDATA             = .false.
 
    ! .true. for running SNICAR model
-   logical :: DEF_USE_SNICAR                  = .true.
+   logical :: DEF_USE_SNICAR                  = .false.
 
    ! .true. read aerosol deposition data from file or .false. set in the code
    logical :: DEF_Aerosol_Readin              = .true.
@@ -164,20 +208,34 @@ MODULE MOD_Namelist
    ! .true. Read aerosol deposition climatology data or .false. yearly changed
    logical :: DEF_Aerosol_Clim                = .false.
 
+   ! ----- lateral flow related -----
+   logical :: DEF_USE_EstimatedRiverDepth     = .true.
+
    CHARACTER(len=5)   :: DEF_precip_phase_discrimination_scheme = 'II'
    CHARACTER(len=256) :: DEF_SSP='585' ! Co2 path for CMIP6 future scenario.
 
+   ! !  irrigation method temporary
+   INTEGER :: DEF_IRRIGATION_METHOD = 1
+
    ! ----- Initialization -----
-   LOGICAL            :: DEF_USE_SOIL_INIT  = .false.
-   CHARACTER(len=256) :: DEF_file_soil_init = 'null'
+   LOGICAL            :: DEF_USE_SoilInit  = .false.
+   CHARACTER(len=256) :: DEF_file_SoilInit = 'null'
+
+   LOGICAL            :: DEF_USE_SnowInit  = .false.
+   CHARACTER(len=256) :: DEF_file_SnowInit = 'null'
+
+   LOGICAL            :: DEF_USE_CN_INIT  = .false.
+   CHARACTER(len=256) :: DEF_file_cn_init = 'null'
 
    CHARACTER(len=256) :: DEF_file_snowoptics = 'null'
    CHARACTER(len=256) :: DEF_file_snowaging  = 'null'
 
+   CHARACTER(len=256) :: DEF_ElementNeighbour_file = 'null'
+
    ! ----- history -----
    LOGICAL  :: DEF_HISTORY_IN_VECTOR = .false.
 
-   LOGICAL  :: DEF_hist_grid_as_forcing   = .false.
+   LOGICAL  :: DEF_hist_grid_as_forcing = .false.
    REAL(r8) :: DEF_hist_lon_res = 0.5
    REAL(r8) :: DEF_hist_lat_res = 0.5
 
@@ -185,11 +243,15 @@ MODULE MOD_Namelist
    CHARACTER(len=256) :: DEF_HIST_FREQ    = 'none'  ! write history file frequency: TIMESTEP/HOURLY/DAILY/MONTHLY/YEARLY
    CHARACTER(len=256) :: DEF_HIST_groupby = 'MONTH' ! history file in one file: DAY/MONTH/YEAR
    CHARACTER(len=256) :: DEF_HIST_mode    = 'one'
+   LOGICAL :: DEF_HIST_WriteBack      = .false.
    INTEGER :: DEF_REST_COMPRESS_LEVEL = 1
    INTEGER :: DEF_HIST_COMPRESS_LEVEL = 1
 
    CHARACTER(len=256) :: DEF_hist_vars_namelist = 'null'
-   LOGICAL :: DEF_hist_vars_turnon_all = .true.
+   LOGICAL :: DEF_hist_vars_out_default = .true.
+
+   ! ----- Data Assimilation -----
+   character(len=256) :: DEF_DA_obsdir = 'null'
 
    ! ----- forcing -----
    CHARACTER(len=256) :: DEF_forcing_namelist = 'null'
@@ -209,6 +271,7 @@ MODULE MOD_Namelist
       LOGICAL            :: regional           = .false.
       REAL(r8)           :: regbnd(4)          = (/-90.0, 90.0, -180.0, 180.0/)
       LOGICAL            :: has_missing_value  = .false.
+      character(len=256) :: missing_value_name = 'missing_value'
 
       INTEGER            :: NVAR               = 8              ! variable number of forcing data
       INTEGER            :: startyr            = 2000           ! start year of forcing data        <MARK #1>
@@ -258,6 +321,8 @@ MODULE MOD_Namelist
    LOGICAL            :: DEF_USE_CBL_HEIGHT = .false.
    !Plant Hydraulics
    LOGICAL            :: DEF_USE_PLANTHYDRAULICS = .true.
+   !Medlyn stomata model
+   LOGICAL            :: DEF_USE_MEDLYNST = .false.
    !Semi-Analytic-Spin-Up
    LOGICAL            :: DEF_USE_SASU = .false.
    !Punctuated nitrogen addition Spin up
@@ -311,10 +376,15 @@ MODULE MOD_Namelist
       LOGICAL :: rsur         = .true.
       LOGICAL :: rsub         = .true.
       LOGICAL :: rnof         = .true.
+      LOGICAL :: xwsur        = .true.
+      LOGICAL :: xwsub        = .true.
       LOGICAL :: qintr        = .true.
       LOGICAL :: qinfl        = .true.
       LOGICAL :: qdrip        = .true.
       LOGICAL :: wat          = .true.
+      LOGICAL :: wat_inst     = .true.
+      LOGICAL :: wetwat       = .true.
+      LOGICAL :: wetwat_inst  = .true.
       LOGICAL :: assim        = .true.
       LOGICAL :: respc        = .true.
       LOGICAL :: qcharge      = .true.
@@ -334,6 +404,7 @@ MODULE MOD_Namelist
       LOGICAL :: emis         = .true.
       LOGICAL :: z0m          = .true.
       LOGICAL :: trad         = .true.
+      LOGICAL :: rss          = .true.
       LOGICAL :: tref         = .true.
       LOGICAL :: qref         = .true.
 #ifdef URBAN_MODEL
@@ -358,8 +429,8 @@ MODULE MOD_Namelist
       LOGICAL :: t_roof       = .true.
       LOGICAL :: t_wall       = .true.
 #endif
-      LOGICAL :: assimsun        = .true. !1
-      LOGICAL :: assimsha        = .true. !1
+      LOGICAL :: assimsun      = .true. !1
+      LOGICAL :: assimsha      = .true. !1
       LOGICAL :: etrsun        = .true. !1
       LOGICAL :: etrsha        = .true. !1
 #ifdef BGC
@@ -511,6 +582,20 @@ MODULE MOD_Namelist
       LOGICAL :: fertnitro_rice1    = .true.
       LOGICAL :: fertnitro_rice2    = .true.
       LOGICAL :: fertnitro_sugarcane= .true.
+      LOGICAL :: irrig_method_corn     = .true.
+      LOGICAL :: irrig_method_swheat   = .true.
+      LOGICAL :: irrig_method_wwheat   = .true.
+      LOGICAL :: irrig_method_soybean  = .true.
+      LOGICAL :: irrig_method_cotton   = .true.
+      LOGICAL :: irrig_method_rice1    = .true.
+      LOGICAL :: irrig_method_rice2    = .true.
+      LOGICAL :: irrig_method_sugarcane= .true.
+
+      LOGICAL :: irrig_rate         = .true.
+      LOGICAL :: deficit_irrig      = .true.
+      LOGICAL :: sum_irrig          = .true.
+      LOGICAL :: sum_irrig_count    = .true.
+
 #endif
       LOGICAL :: ndep_to_sminn      = .true.
       LOGICAL :: CONC_O2_UNSAT      = .true.
@@ -537,8 +622,10 @@ MODULE MOD_Namelist
       LOGICAL :: wfc          = .true.
       LOGICAL :: OM_density   = .true.
       LOGICAL :: wdsrf        = .true.
+      LOGICAL :: wdsrf_inst   = .true.
       LOGICAL :: zwt          = .true.
       LOGICAL :: wa           = .true.
+      LOGICAL :: wa_inst      = .true.
 
       LOGICAL :: t_lake       = .true.
       LOGICAL :: lake_icefrac = .true.
@@ -592,10 +679,11 @@ MODULE MOD_Namelist
       LOGICAL :: srndln       = .true.
       LOGICAL :: srniln       = .true.
 
-      LOGICAL :: rsubs_bsn    = .true.
-      LOGICAL :: rsubs_hru    = .true.
+      LOGICAL :: xsubs_bsn    = .true.
+      LOGICAL :: xsubs_hru    = .true.
       LOGICAL :: riv_height   = .true.
       LOGICAL :: riv_veloct   = .true.
+      LOGICAL :: discharge    = .true.
       LOGICAL :: wdsrf_hru    = .true.
       LOGICAL :: veloc_hru    = .true.
 
@@ -632,6 +720,10 @@ CONTAINS
          USE_SITE_dbedrock,        &
          USE_SITE_topography,      &
          USE_SITE_HistWriteBack,   &
+         USE_SITE_ForcingReadAhead,&
+         USE_SITE_urban_paras,     &
+         USE_SITE_thermal_paras,   &
+         USE_SITE_urban_LAI,       &
 #endif
          DEF_nx_blocks,                   &
          DEF_ny_blocks,                   &
@@ -648,17 +740,28 @@ CONTAINS
 #endif
          DEF_file_mesh_filter,            &
 
+         DEF_USE_LCT,                     &
+         DEF_USE_PFT,                     &
+         DEF_USE_PC,                      &
+         DEF_FAST_PC,                     &
+         DEF_SOLO_PFT,                    &
+         DEF_SUBGRID_SCHEME,              &
+
          DEF_LAI_MONTHLY,                 &   !add by zhongwang wei @ sysu 2021/12/23
+         DEF_NDEP_FREQUENCY,              &   !add by Fang Shang    @ pku  2023/08
          DEF_Interception_scheme,         &   !add by zhongwang wei @ sysu 2022/05/23
          DEF_SSP,                         &   !add by zhongwang wei @ sysu 2023/02/07
 
          DEF_LAI_CHANGE_YEARLY,           &
          DEF_USE_LAIFEEDBACK,             &   !add by Xingjie Lu, use for updating LAI with leaf carbon
+         DEF_USE_IRRIGATION,              &   ! use irrigation
+         DEF_IRRIGATION_METHOD,           &   ! use irrigation temporary
 
          DEF_LC_YEAR,                     &
          DEF_LULCC_SCHEME,                &
 
-        !DEF_URBAN_type_scheme,           &
+         DEF_URBAN_type_scheme,           &
+         DEF_URBAN_ONLY,                  &
          DEF_URBAN_RUN,                   &   !add by hua yuan, open urban model or not
          DEF_URBAN_BEM,                   &   !add by hua yuan, open urban BEM model or not
          DEF_URBAN_TREE,                  &   !add by hua yuan, modeling urban tree or not
@@ -669,13 +772,17 @@ CONTAINS
          DEF_THERMAL_CONDUCTIVITY_SCHEME, &
          DEF_USE_SUPERCOOL_WATER,         &
          DEF_SOIL_REFL_SCHEME,            &
+         DEF_RSS_SCHEME,                  &
+         DEF_SPLIT_SOILSNOW,              &
 
          DEF_dir_existing_srfdata,        &
          USE_srfdata_from_larger_region,  &
          USE_srfdata_from_3D_gridded_data,&
+         USE_zip_for_aggregation,         &
 
          DEF_USE_CBL_HEIGHT,              &   !add by zhongwang wei @ sysu 2022/12/31
          DEF_USE_PLANTHYDRAULICS,         &   !add by xingjie lu @ sysu 2023/05/28
+         DEF_USE_MEDLYNST,                &   !add by xingjie lu @ sysu 2023/05/28
          DEF_USE_SASU,                    &   !add by Xingjie Lu @ sysu 2023/06/27
          DEF_USE_PN,                      &   !add by Xingjie Lu @ sysu 2023/06/27
          DEF_USE_FERT,                    &   !add by Xingjie Lu @ sysu 2023/06/27
@@ -685,21 +792,32 @@ CONTAINS
 
          DEF_LANDONLY,                    &
          DEF_USE_DOMINANT_PATCHTYPE,      &
-         DEF_USE_VARIABLY_SATURATED_FLOW, &
+         DEF_USE_VariablySaturatedFlow,   &
          DEF_USE_BEDROCK,                 &
          DEF_USE_OZONESTRESS,             &
          DEF_USE_OZONEDATA,               &
          DEF_USE_SNICAR,                  &
          DEF_Aerosol_Readin,              &
          DEF_Aerosol_Clim,                &
+         DEF_USE_EstimatedRiverDepth,     &
 
          DEF_precip_phase_discrimination_scheme, &
 
-         DEF_USE_SOIL_INIT,               &
-         DEF_file_soil_init,              &
+         DEF_USE_SoilInit,                &
+         DEF_file_SoilInit,               &
+
+         DEF_USE_SnowInit,                &
+         DEF_file_SnowInit,               &
+
+         DEF_USE_CN_INIT,               &
+         DEF_file_cn_init,              &
 
          DEF_file_snowoptics,             &
          DEF_file_snowaging ,             &
+
+         DEF_ElementNeighbour_file,       &
+
+         DEF_DA_obsdir,                   &
 
          DEF_forcing_namelist,            &
 
@@ -715,10 +833,11 @@ CONTAINS
          DEF_HIST_FREQ,                   &
          DEF_HIST_groupby,                &
          DEF_HIST_mode,                   &
+         DEF_HIST_WriteBack,              &
          DEF_REST_COMPRESS_LEVEL,         &
          DEF_HIST_COMPRESS_LEVEL,         &
          DEF_hist_vars_namelist,          &
-         DEF_hist_vars_turnon_all
+         DEF_hist_vars_out_default
 
       namelist /nl_colm_forcing/ DEF_dir_forcing, DEF_forcing
       namelist /nl_colm_history/ DEF_hist_vars
@@ -729,19 +848,14 @@ CONTAINS
          open(10, status='OLD', file=nlfile, form="FORMATTED")
          read(10, nml=nl_colm, iostat=ierr)
          IF (ierr /= 0) THEN
-            write(*,*) ' ***** ERROR: Problem reading namelist.'
-            write(*,*) trim(nlfile), ierr
-#ifdef USEMPI
-            CALL mpi_abort (p_comm_glb, p_err)
-#endif
+            CALL CoLM_Stop (' ***** ERROR: Problem reading namelist: '// trim(nlfile))
          ENDIF
          close(10)
 
          open(10, status='OLD', file=trim(DEF_forcing_namelist), form="FORMATTED")
          read(10, nml=nl_colm_forcing, iostat=ierr)
          IF (ierr /= 0) THEN
-            write(*,*) ' ***** ERROR: Problem reading forcing namelist.'
-            write(*,*) trim(DEF_forcing_namelist), ierr
+            CALL CoLM_Stop (' ***** ERROR: Problem reading namelist: '// trim(DEF_forcing_namelist))
          ENDIF
          close(10)
 #ifdef SinglePoint
@@ -772,13 +886,41 @@ CONTAINS
 ! ----- SOIL model related ------ Macros&Namelist conflicts and dependency management
 #if (defined vanGenuchten_Mualem_SOIL_MODEL)
          write(*,*) '                  *****                  '
-         write(*,*) 'Note: DEF_USE_VARIABLY_SATURATED_FLOW is automaticlly set to .true.  '
+         write(*,*) 'Note: DEF_USE_VariablySaturatedFlow is automaticlly set to .true.  '
          write(*,*) 'when using vanGenuchten_Mualem_SOIL_MODEL. '
-         DEF_USE_VARIABLY_SATURATED_FLOW = .true.
+         DEF_USE_VariablySaturatedFlow = .true.
+#endif
+#if (defined CatchLateralFlow)
+         write(*,*) '                  *****                  '
+         write(*,*) 'Note: DEF_USE_VariablySaturatedFlow is automaticlly set to .true.  '
+         write(*,*) 'when defined CatchLateralFlow. '
+         DEF_USE_VariablySaturatedFlow = .true.
 #endif
 
 
 ! ----- subgrid type related ------ Macros&Namelist conflicts and dependency management
+
+#if (defined LULC_USGS || defined LULC_IGBP)
+         DEF_USE_LCT  = .true.
+         DEF_USE_PFT  = .false.
+         DEF_USE_PC   = .false.
+         DEF_FAST_PC  = .false.
+         DEF_SOLO_PFT = .false.
+#endif
+
+#ifdef LULC_IGBP_PFT
+         DEF_USE_LCT  = .false.
+         DEF_USE_PFT  = .true.
+         DEF_USE_PC   = .false.
+         DEF_FAST_PC  = .false.
+#endif
+
+#ifdef LULC_IGBP_PC
+         DEF_USE_LCT  = .false.
+         DEF_USE_PFT  = .false.
+         DEF_USE_PC   = .true.
+         DEF_SOLO_PFT = .false.
+#endif
 
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
          IF (.not.DEF_LAI_MONTHLY) THEN
@@ -844,6 +986,13 @@ CONTAINS
             write(*,*) 'Warning: Soy nitrogen fixation is on when CROP is off.'
             write(*,*) 'DEF_USE_CNSOYFIXN is set to false automatically when CROP is turned off.'
          ENDIF
+
+         if(DEF_USE_IRRIGATION)then
+            DEF_USE_IRRIGATION = .false.
+            write(*,*) '                  *****                  '
+            write(*,*) 'Warning: irrigation is on when CROP is off.'
+            write(*,*) 'DEF_USE_IRRIGATION is set to false automatically when CROP is turned off.'
+         ENDIF
 #endif
 
          IF(.not. DEF_USE_OZONESTRESS)then
@@ -898,7 +1047,7 @@ CONTAINS
 #if (defined LULC_USGS || defined BGC)
          write(*,*) '                  *****                  '
          write(*,*) 'Fatal ERROR: LULCC is not supported for LULC_USGS/BGC at present. STOP! '
-         STOP
+         CALL CoLM_stop ()
 #endif
          IF (.not.DEF_LAI_MONTHLY) THEN
             write(*,*) '                  *****                  '
@@ -915,17 +1064,35 @@ CONTAINS
          ENDIF
 
 #if (defined LULC_IGBP_PC || defined URBAN)
-         write(*,*) '                  *****                  '
-         write(*,*) 'Fatal ERROR: LULCC is not supported for LULC_IGBP_PC/URBAN at present. STOP! '
-         write(*,*) 'It is coming soon. '
-         STOP
+         !write(*,*) '                  *****                  '
+         !write(*,*) 'Fatal ERROR: LULCC is not supported for LULC_IGBP_PC/URBAN at present. STOP! '
+         !write(*,*) 'It is coming soon. '
+         ![update] 24/10/2023: right now IGBP/PFT/PC and Urban are all supported.
+         !CALL CoLM_stop ()
 #endif
 
+#if (defined SinglePoint)
+         write(*,*) '                  *****                  '
+         write(*,*) 'Fatal ERROR: LULCC is not supported for Single Point run at present. STOP! '
+         write(*,*) 'It will come later. '
+         CALL CoLM_stop ()
+#endif
+
+#endif
+
+
+! ----- single point run ----- Macros&Namelist conflicts and dependency management
+
+#if (defined SinglePoint)
+#ifdef SrfdataDiag
+         write(*,*) '                  *****                  '
+         write(*,*) 'Surface data diagnose is closed in SinglePoint case.'
+#undef SrfdataDiag
+#endif
 #endif
 
 
 ! ----- [Complement IF needed] ----- Macros&Namelist conflicts and dependency management
-
 
 
 ! -----END Macros&Namelist conflicts and dependency management -----
@@ -964,7 +1131,7 @@ CONTAINS
       CALL mpi_bcast (DEF_simulation_time%spinup_sec,    1, mpi_integer, p_root, p_comm_glb, p_err)
       CALL mpi_bcast (DEF_simulation_time%spinup_repeat, 1, mpi_integer, p_root, p_comm_glb, p_err)
 
-      CALL mpi_bcast (DEF_simulation_time%timestep,     1, mpi_real8,   p_root, p_comm_glb, p_err)
+      CALL mpi_bcast (DEF_simulation_time%timestep,      1, mpi_real8,   p_root, p_comm_glb, p_err)
 
       CALL mpi_bcast (DEF_dir_rawdata,  256, mpi_character, p_root, p_comm_glb, p_err)
       CALL mpi_bcast (DEF_dir_runtime,  256, mpi_character, p_root, p_comm_glb, p_err)
@@ -977,36 +1144,50 @@ CONTAINS
 
 #if (defined GRIDBASED || defined UNSTRUCTURED)
       CALL mpi_bcast (DEF_file_mesh,    256, mpi_character, p_root, p_comm_glb, p_err)
-      CALL mpi_bcast (DEF_GRIDBASED_lon_res, 1, mpi_real8, p_root, p_comm_glb, p_err)
-      CALL mpi_bcast (DEF_GRIDBASED_lat_res, 1, mpi_real8, p_root, p_comm_glb, p_err)
+      CALL mpi_bcast (DEF_GRIDBASED_lon_res,  1, mpi_real8, p_root, p_comm_glb, p_err)
+      CALL mpi_bcast (DEF_GRIDBASED_lat_res,  1, mpi_real8, p_root, p_comm_glb, p_err)
 #endif
 
 #ifdef CATCHMENT
       CALL mpi_bcast (DEF_CatchmentMesh_data, 256, mpi_character, p_root, p_comm_glb, p_err)
 #endif
 
-      CALL mpi_bcast (DEF_file_mesh_filter, 256, mpi_character, p_root, p_comm_glb, p_err)
+      CALL mpi_bcast (DEF_file_mesh_filter,   256, mpi_character, p_root, p_comm_glb, p_err)
 
-      CALL mpi_bcast (DEF_dir_existing_srfdata, 256, mpi_character, p_root, p_comm_glb, p_err)
+      CALL mpi_bcast (DEF_dir_existing_srfdata,     256, mpi_character, p_root, p_comm_glb, p_err)
       call mpi_bcast (USE_srfdata_from_larger_region,   1, mpi_logical, p_root, p_comm_glb, p_err)
       call mpi_bcast (USE_srfdata_from_3D_gridded_data, 1, mpi_logical, p_root, p_comm_glb, p_err)
+      call mpi_bcast (USE_zip_for_aggregation,          1, mpi_logical, p_root, p_comm_glb, p_err)
 
-      CALL mpi_bcast (DEF_LAI_CHANGE_YEARLY,   1, mpi_logical, p_root, p_comm_glb, p_err)
+      ! 07/2023, added by yuan: subgrid setting related
+      CALL mpi_bcast (DEF_USE_LCT,           1, mpi_logical,   p_root, p_comm_glb, p_err)
+      CALL mpi_bcast (DEF_USE_PFT,           1, mpi_logical,   p_root, p_comm_glb, p_err)
+      CALL mpi_bcast (DEF_USE_PC,            1, mpi_logical,   p_root, p_comm_glb, p_err)
+      CALL mpi_bcast (DEF_FAST_PC,           1, mpi_logical,   p_root, p_comm_glb, p_err)
+      CALL mpi_bcast (DEF_SOLO_PFT,          1, mpi_logical,   p_root, p_comm_glb, p_err)
+      CALL mpi_bcast (DEF_SUBGRID_SCHEME,  256, mpi_character, p_root, p_comm_glb, p_err)
+
+      CALL mpi_bcast (DEF_LAI_CHANGE_YEARLY, 1, mpi_logical, p_root, p_comm_glb, p_err)
 
       ! 05/2023, added by Xingjie lu
-      CALL mpi_bcast (DEF_USE_LAIFEEDBACK,     1, mpi_logical, p_root, p_comm_glb, p_err)
+      CALL mpi_bcast (DEF_USE_LAIFEEDBACK,   1, mpi_logical, p_root, p_comm_glb, p_err)
+      CALL mpi_bcast (DEF_USE_IRRIGATION ,   1, mpi_logical, p_root, p_comm_glb, p_err)
+
+      !  use irrigation temporary
+      ! CALL mpi_bcast (DEF_IRRIGATION_METHOD,   1, mpi_logical, p_root, p_comm_glb, p_err)
 
       ! LULC related
-      CALL mpi_bcast (DEF_LC_YEAR,         1, mpi_integer, p_root, p_comm_glb, p_err)
-      CALL mpi_bcast (DEF_LULCC_SCHEME,    1, mpi_integer, p_root, p_comm_glb, p_err)
+      CALL mpi_bcast (DEF_LC_YEAR,           1, mpi_integer, p_root, p_comm_glb, p_err)
+      CALL mpi_bcast (DEF_LULCC_SCHEME,      1, mpi_integer, p_root, p_comm_glb, p_err)
 
-      !CALL mpi_bcast (DEF_URBAN_type_scheme, 1, mpi_integer, p_root, p_comm_glb, p_err)
+      CALL mpi_bcast (DEF_URBAN_type_scheme, 1, mpi_integer, p_root, p_comm_glb, p_err)
       ! 05/2023, added by yuan
-      CALL mpi_bcast (DEF_URBAN_RUN,       1, mpi_logical, p_root, p_comm_glb, p_err)
-      CALL mpi_bcast (DEF_URBAN_BEM,       1, mpi_logical, p_root, p_comm_glb, p_err)
-      CALL mpi_bcast (DEF_URBAN_TREE,      1, mpi_logical, p_root, p_comm_glb, p_err)
-      CALL mpi_bcast (DEF_URBAN_WATER,     1, mpi_logical, p_root, p_comm_glb, p_err)
-      CALL mpi_bcast (DEF_URBAN_LUCY,      1, mpi_logical, p_root, p_comm_glb, p_err)
+      CALL mpi_bcast (DEF_URBAN_ONLY,        1, mpi_logical, p_root, p_comm_glb, p_err)
+      CALL mpi_bcast (DEF_URBAN_RUN,         1, mpi_logical, p_root, p_comm_glb, p_err)
+      CALL mpi_bcast (DEF_URBAN_BEM,         1, mpi_logical, p_root, p_comm_glb, p_err)
+      CALL mpi_bcast (DEF_URBAN_TREE,        1, mpi_logical, p_root, p_comm_glb, p_err)
+      CALL mpi_bcast (DEF_URBAN_WATER,       1, mpi_logical, p_root, p_comm_glb, p_err)
+      CALL mpi_bcast (DEF_URBAN_LUCY,        1, mpi_logical, p_root, p_comm_glb, p_err)
 
       ! 06/2023, added by weinan
       CALL mpi_bcast (DEF_USE_SOILPAR_UPS_FIT,          1, mpi_logical, p_root, p_comm_glb, p_err)
@@ -1015,38 +1196,56 @@ CONTAINS
 
       ! 06/2023, added by hua yuan
       CALL mpi_bcast (DEF_SOIL_REFL_SCHEME,             1, mpi_integer, p_root, p_comm_glb, p_err)
+      ! 07/2023, added by zhuo liu
+      CALL mpi_bcast (DEF_RSS_SCHEME,                   1, mpi_integer, p_root, p_comm_glb, p_err)
+      ! 08/2023, added by hua yuan
+      CALL mpi_bcast (DEF_SPLIT_SOILSNOW,      1, mpi_logical, p_root, p_comm_glb, p_err)
 
       call mpi_bcast (DEF_LAI_MONTHLY,         1, mpi_logical, p_root, p_comm_glb, p_err)
+      call mpi_bcast (DEF_NDEP_FREQUENCY,      1, mpi_integer, p_root, p_comm_glb, p_err)
       call mpi_bcast (DEF_Interception_scheme, 1, mpi_integer, p_root, p_comm_glb, p_err)
-      call mpi_bcast (DEF_SSP, 256, mpi_character, p_root, p_comm_glb, p_err)
+      call mpi_bcast (DEF_SSP,             256, mpi_character, p_root, p_comm_glb, p_err)
 
-      call mpi_bcast (DEF_USE_CBL_HEIGHT, 1, mpi_logical, p_root, p_comm_glb, p_err)
+      call mpi_bcast (DEF_USE_CBL_HEIGHT     , 1, mpi_logical, p_root, p_comm_glb, p_err)
       call mpi_bcast (DEF_USE_PLANTHYDRAULICS, 1, mpi_logical, p_root, p_comm_glb, p_err)
-      call mpi_bcast (DEF_USE_SASU, 1, mpi_logical, p_root, p_comm_glb, p_err)
-      call mpi_bcast (DEF_USE_PN, 1, mpi_logical, p_root, p_comm_glb, p_err)
-      call mpi_bcast (DEF_USE_FERT, 1, mpi_logical, p_root, p_comm_glb, p_err)
-      call mpi_bcast (DEF_USE_NITRIF, 1, mpi_logical, p_root, p_comm_glb, p_err)
-      call mpi_bcast (DEF_USE_CNSOYFIXN, 1, mpi_logical, p_root, p_comm_glb, p_err)
-      call mpi_bcast (DEF_USE_FIRE, 1, mpi_logical, p_root, p_comm_glb, p_err)
+      call mpi_bcast (DEF_USE_MEDLYNST       , 1, mpi_logical, p_root, p_comm_glb, p_err)
+      call mpi_bcast (DEF_USE_SASU           , 1, mpi_logical, p_root, p_comm_glb, p_err)
+      call mpi_bcast (DEF_USE_PN             , 1, mpi_logical, p_root, p_comm_glb, p_err)
+      call mpi_bcast (DEF_USE_FERT           , 1, mpi_logical, p_root, p_comm_glb, p_err)
+      call mpi_bcast (DEF_USE_NITRIF         , 1, mpi_logical, p_root, p_comm_glb, p_err)
+      call mpi_bcast (DEF_USE_CNSOYFIXN      , 1, mpi_logical, p_root, p_comm_glb, p_err)
+      call mpi_bcast (DEF_USE_FIRE           , 1, mpi_logical, p_root, p_comm_glb, p_err)
 
-      call mpi_bcast (DEF_LANDONLY,                   1, mpi_logical, p_root, p_comm_glb, p_err)
-      call mpi_bcast (DEF_USE_DOMINANT_PATCHTYPE,     1, mpi_logical, p_root, p_comm_glb, p_err)
-      call mpi_bcast (DEF_USE_VARIABLY_SATURATED_FLOW,1, mpi_logical, p_root, p_comm_glb, p_err)
-      call mpi_bcast (DEF_USE_BEDROCK                ,1, mpi_logical, p_root, p_comm_glb, p_err)
-      call mpi_bcast (DEF_USE_OZONESTRESS            ,1, mpi_logical, p_root, p_comm_glb, p_err)
-      call mpi_bcast (DEF_USE_OZONEDATA              ,1, mpi_logical, p_root, p_comm_glb, p_err)
+      call mpi_bcast (DEF_LANDONLY                 , 1, mpi_logical, p_root, p_comm_glb, p_err)
+      call mpi_bcast (DEF_USE_DOMINANT_PATCHTYPE   , 1, mpi_logical, p_root, p_comm_glb, p_err)
+      call mpi_bcast (DEF_USE_VariablySaturatedFlow, 1, mpi_logical, p_root, p_comm_glb, p_err)
+      call mpi_bcast (DEF_USE_BEDROCK              , 1, mpi_logical, p_root, p_comm_glb, p_err)
+      call mpi_bcast (DEF_USE_OZONESTRESS          , 1, mpi_logical, p_root, p_comm_glb, p_err)
+      call mpi_bcast (DEF_USE_OZONEDATA            , 1, mpi_logical, p_root, p_comm_glb, p_err)
 
       CALL mpi_bcast (DEF_precip_phase_discrimination_scheme, 5, mpi_character, p_root, p_comm_glb, p_err)
 
-      call mpi_bcast (DEF_USE_SOIL_INIT,    1, mpi_logical,   p_root, p_comm_glb, p_err)
-      CALL mpi_bcast (DEF_file_soil_init, 256, mpi_character, p_root, p_comm_glb, p_err)
+      call mpi_bcast (DEF_USE_SoilInit,    1, mpi_logical,   p_root, p_comm_glb, p_err)
+      CALL mpi_bcast (DEF_file_SoilInit, 256, mpi_character, p_root, p_comm_glb, p_err)
+
+      call mpi_bcast (DEF_USE_SnowInit,    1, mpi_logical,   p_root, p_comm_glb, p_err)
+      CALL mpi_bcast (DEF_file_SnowInit, 256, mpi_character, p_root, p_comm_glb, p_err)
+
+      call mpi_bcast (DEF_USE_CN_INIT,    1, mpi_logical,   p_root, p_comm_glb, p_err)
+      CALL mpi_bcast (DEF_file_cn_init, 256, mpi_character, p_root, p_comm_glb, p_err)
 
       call mpi_bcast (DEF_USE_SNICAR,        1, mpi_logical,   p_root, p_comm_glb, p_err)
       CALL mpi_bcast (DEF_file_snowoptics, 256, mpi_character, p_root, p_comm_glb, p_err)
       CALL mpi_bcast (DEF_file_snowaging , 256, mpi_character, p_root, p_comm_glb, p_err)
+      
+      CALL mpi_bcast (DEF_ElementNeighbour_file, 256, mpi_character, p_root, p_comm_glb, p_err)
+
+      CALL mpi_bcast (DEF_DA_obsdir      , 256, mpi_character, p_root, p_comm_glb, p_err)
 
       call mpi_bcast (DEF_Aerosol_Readin,    1, mpi_logical,   p_root, p_comm_glb, p_err)
       call mpi_bcast (DEF_Aerosol_Clim,      1, mpi_logical,   p_root, p_comm_glb, p_err)
+
+      call mpi_bcast (DEF_USE_EstimatedRiverDepth, 1, mpi_logical, p_root, p_comm_glb, p_err)
 
       CALL mpi_bcast (DEF_HISTORY_IN_VECTOR, 1, mpi_logical,  p_root, p_comm_glb, p_err)
 
@@ -1059,6 +1258,7 @@ CONTAINS
       CALL mpi_bcast (DEF_HIST_FREQ,         256, mpi_character, p_root, p_comm_glb, p_err)
       CALL mpi_bcast (DEF_HIST_groupby,      256, mpi_character, p_root, p_comm_glb, p_err)
       CALL mpi_bcast (DEF_HIST_mode,         256, mpi_character, p_root, p_comm_glb, p_err)
+      CALL mpi_bcast (DEF_HIST_WriteBack,      1, mpi_logical,   p_root, p_comm_glb, p_err)
       CALL mpi_bcast (DEF_REST_COMPRESS_LEVEL, 1, mpi_integer,   p_root, p_comm_glb, p_err)
       CALL mpi_bcast (DEF_HIST_COMPRESS_LEVEL, 1, mpi_integer,   p_root, p_comm_glb, p_err)
 
@@ -1074,6 +1274,7 @@ CONTAINS
       CALL mpi_bcast (DEF_forcing%regional,           1, mpi_logical,   p_root, p_comm_glb, p_err)
       CALL mpi_bcast (DEF_forcing%regbnd,             4, mpi_real8,     p_root, p_comm_glb, p_err)
       CALL mpi_bcast (DEF_forcing%has_missing_value,  1, mpi_logical,   p_root, p_comm_glb, p_err)
+      CALL mpi_bcast (DEF_forcing%missing_value_name,256,mpi_character, p_root, p_comm_glb, p_err)
       CALL mpi_bcast (DEF_forcing%NVAR,               1, mpi_integer,   p_root, p_comm_glb, p_err)
       CALL mpi_bcast (DEF_forcing%startyr,            1, mpi_integer,   p_root, p_comm_glb, p_err)
       CALL mpi_bcast (DEF_forcing%startmo,            1, mpi_integer,   p_root, p_comm_glb, p_err)
@@ -1099,9 +1300,6 @@ CONTAINS
       call mpi_bcast (DEF_forcing%CBL_tintalgo,     256, mpi_character, p_root, p_comm_glb, p_err)
       CALL mpi_bcast (DEF_forcing%CBL_dtime,          1, mpi_integer,   p_root, p_comm_glb, p_err)
       CALL mpi_bcast (DEF_forcing%CBL_offset,         1, mpi_integer,   p_root, p_comm_glb, p_err)
-
-      CALL mpi_bcast (DEF_file_snowoptics,  256, mpi_character, p_root, p_comm_glb, p_err)
-      CALL mpi_bcast (DEF_file_snowaging,   256, mpi_character, p_root, p_comm_glb, p_err)
 #endif
 
       CALL sync_hist_vars (set_defaults = .true.)
@@ -1114,6 +1312,10 @@ CONTAINS
          ELSE
             open(10, status='OLD', file=trim(DEF_hist_vars_namelist), form="FORMATTED")
             read(10, nml=nl_colm_history, iostat=ierr)
+            IF (ierr /= 0) THEN
+               CALL CoLM_Stop (' ***** ERROR: Problem reading namelist: ' &
+                  // trim(DEF_hist_vars_namelist))
+            ENDIF
             close(10)
          ENDIF
 
@@ -1165,10 +1367,15 @@ CONTAINS
       CALL sync_hist_vars_one (DEF_hist_vars%rsur        ,  set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%rsub        ,  set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%rnof        ,  set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%xwsur       ,  set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%xwsub       ,  set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%qintr       ,  set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%qinfl       ,  set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%qdrip       ,  set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%wat         ,  set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%wat_inst    ,  set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%wetwat      ,  set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%wetwat_inst ,  set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%assim       ,  set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%respc       ,  set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%qcharge     ,  set_defaults)
@@ -1188,6 +1395,7 @@ CONTAINS
       CALL sync_hist_vars_one (DEF_hist_vars%emis        ,  set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%z0m         ,  set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%trad        ,  set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%rss         ,  set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%tref        ,  set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%qref        ,  set_defaults)
 #ifdef URBAN_MODEL
@@ -1212,6 +1420,10 @@ CONTAINS
       CALL sync_hist_vars_one (DEF_hist_vars%t_roof      ,  set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%t_wall      ,  set_defaults)
 #endif
+      CALL sync_hist_vars_one (DEF_hist_vars%assimsun    ,  set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%assimsha    ,  set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%etrsun      ,  set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%etrsha      ,  set_defaults)
 #ifdef BGC
       CALL sync_hist_vars_one (DEF_hist_vars%leafc              ,  set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%leafc_storage      ,  set_defaults)
@@ -1292,10 +1504,6 @@ CONTAINS
       CALL sync_hist_vars_one (DEF_hist_vars%leafc_c3arcgrass   ,  set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%leafc_c3grass      ,  set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%leafc_c4grass      ,  set_defaults)
-         CALL sync_hist_vars_one (DEF_hist_vars%assimsun        ,  set_defaults)
-         CALL sync_hist_vars_one (DEF_hist_vars%assimsha        ,  set_defaults)
-         CALL sync_hist_vars_one (DEF_hist_vars%etrsun        ,  set_defaults)
-         CALL sync_hist_vars_one (DEF_hist_vars%etrsha        ,  set_defaults)
 #ifdef CROP
       CALL sync_hist_vars_one (DEF_hist_vars%cphase                          , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%cropprod1c                      , set_defaults)
@@ -1346,6 +1554,12 @@ CONTAINS
       CALL sync_hist_vars_one (DEF_hist_vars%cropprodc_irrigated_trop_soybean, set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%cropprodc_unmanagedcrop         , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%fert_to_sminn                   , set_defaults)
+      if(DEF_USE_IRRIGATION)then
+         CALL sync_hist_vars_one (DEF_hist_vars%irrig_rate                      , set_defaults)
+         CALL sync_hist_vars_one (DEF_hist_vars%deficit_irrig                   , set_defaults)
+         CALL sync_hist_vars_one (DEF_hist_vars%sum_irrig                       , set_defaults)
+         CALL sync_hist_vars_one (DEF_hist_vars%sum_irrig_count                 , set_defaults)
+      endif
 #endif
       CALL sync_hist_vars_one (DEF_hist_vars%ndep_to_sminn                   , set_defaults)
       if(DEF_USE_FIRE)then
@@ -1372,8 +1586,10 @@ CONTAINS
       CALL sync_hist_vars_one (DEF_hist_vars%wfc         ,  set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%OM_density  ,  set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%wdsrf       ,  set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%wdsrf_inst  ,  set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%zwt         ,  set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%wa          ,  set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%wa_inst     ,  set_defaults)
 
       CALL sync_hist_vars_one (DEF_hist_vars%t_lake      ,  set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%lake_icefrac,  set_defaults)
@@ -1427,10 +1643,11 @@ CONTAINS
       CALL sync_hist_vars_one (DEF_hist_vars%srndln      ,  set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%srniln      ,  set_defaults)
 
-      CALL sync_hist_vars_one (DEF_hist_vars%rsubs_bsn   ,  set_defaults)
-      CALL sync_hist_vars_one (DEF_hist_vars%rsubs_hru   ,  set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%xsubs_bsn   ,  set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%xsubs_hru   ,  set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%riv_height  ,  set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%riv_veloct  ,  set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%discharge   ,  set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%wdsrf_hru   ,  set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%veloc_hru   ,  set_defaults)
 
@@ -1446,7 +1663,7 @@ CONTAINS
 
       IF (p_is_master) THEN
          IF (set_defaults) THEN
-            onoff = DEF_hist_vars_turnon_all
+            onoff = DEF_hist_vars_out_default
          ENDIF
       ENDIF
 

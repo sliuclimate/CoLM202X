@@ -1,6 +1,6 @@
 #include <define.h>
 
-#ifdef LULC_IGBP_PFT
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
 
 MODULE MOD_LandPFT
 
@@ -16,7 +16,7 @@ MODULE MOD_LandPFT
    !       ELEMENT >>> HRU >>> PATCH
    !    If Plant Function Type classification is used, PATCH is further divided into PFT.
    !    If Plant Community classification is used,     PATCH is further divided into PC.
-   ! 
+   !
    !    "landpft" refers to pixelset PFT.
    !
    ! Created by Shupeng Zhang, May 2023
@@ -54,6 +54,9 @@ CONTAINS
       USE MOD_LandPatch
       USE MOD_AggregationRequestData
       USE MOD_Const_LC
+#ifdef CROP
+      USE MOD_LandCrop
+#endif
 
       IMPLICIT NONE
 
@@ -74,7 +77,11 @@ CONTAINS
 
 #ifdef SinglePoint
       IF (USE_SITE_pctpfts) THEN
-         IF (landpatch%settyp(1) == 1) THEN
+#ifndef CROP
+         IF (patchtypes(landpatch%settyp(1)) == 0) THEN
+#else
+         IF (patchtypes(landpatch%settyp(1)) == 0 .and. landpatch%settyp(1)/=CROPLAND) THEN
+#endif
             numpft = count(SITE_pctpfts > 0.)
 #ifdef CROP
          ELSEIF (landpatch%settyp(1) == CROPLAND) THEN
@@ -101,7 +108,11 @@ CONTAINS
 
             allocate(pft2patch (numpft))
 
-            IF (landpatch%settyp(1) == 1) THEN
+#ifndef CROP
+            IF (patchtypes(landpatch%settyp(1)) == 0) THEN
+#else
+            IF (patchtypes(landpatch%settyp(1)) == 0 .and. landpatch%settyp(1)/=CROPLAND) THEN
+#endif
                landpft%settyp = pack(SITE_pfttyp, SITE_pctpfts > 0.)
 
                pft2patch  (:) = 1
@@ -118,7 +129,7 @@ CONTAINS
 #endif
             ENDIF
          ELSE
-            write(*,*) 'Warning : land type ', landpatch%settyp(1), ' for LULC_IGBP_PFT'
+            write(*,*) 'Warning : land type ', landpatch%settyp(1), ' for LULC_IGBP_PFT|LULC_IGBP_PC'
             patch_pft_s(:) = -1
             patch_pft_e(:) = -1
          ENDIF
@@ -162,20 +173,25 @@ CONTAINS
          ENDIF
 
          DO ipatch = 1, numpatch
-            IF (landpatch%settyp(ipatch) == 1) THEN
-
-               CALL aggregation_request_data (landpatch, ipatch, gpatch, area = area_one, &
+            !IF (landpatch%settyp(ipatch) == 1) THEN
+#ifndef CROP
+            IF (patchtypes(landpatch%settyp(ipatch)) == 0) THEN
+#else
+            IF (patchtypes(landpatch%settyp(ipatch)) == 0 .and. landpatch%settyp(ipatch)/=CROPLAND) THEN
+#endif
+               CALL aggregation_request_data (landpatch, ipatch, gpatch, zip = .false., area = area_one, &
                   data_r8_3d_in1 = pctpft, data_r8_3d_out1 = pctpft_one, n1_r8_3d_in1 = N_PFT_modis, lb1_r8_3d_in1 = 0)
 
-               sumarea = sum(area_one)
+               sumarea = sum(area_one * sum(pctpft_one(0:N_PFT-1,:),dim=1))
 
-               DO ipft = 0, N_PFT-1
-                  pctpft_patch(ipft,ipatch) = sum(pctpft_one(ipft,:) * area_one) / sumarea
-               ENDDO
-
-               IF (sum(pctpft_patch(:,ipatch)) <= 0.0) THEN
+               IF (sumarea <= 0.0) THEN
                   patchmask(ipatch) = .false.
+               ELSE
+                  DO ipft = 0, N_PFT-1
+                     pctpft_patch(ipft,ipatch) = sum(pctpft_one(ipft,:) * area_one) / sumarea
+                  ENDDO
                ENDIF
+
             ENDIF
          ENDDO
 
@@ -199,7 +215,7 @@ CONTAINS
 
          IF (numpft > 0) THEN
 
-            allocate (pft2patch   (numpft))
+            allocate (pft2patch      (numpft))
 
             allocate (landpft%eindex (numpft))
             allocate (landpft%settyp (numpft))
@@ -213,7 +229,12 @@ CONTAINS
                IF (patchmask(ipatch)) THEN
                   npatch = npatch + 1
 
-                  IF (landpatch%settyp(ipatch) == 1) THEN
+                  !IF (landpatch%settyp(ipatch) == 1) THEN
+#ifndef CROP
+                  IF (patchtypes(landpatch%settyp(ipatch)) == 0) THEN
+#else
+                  IF (patchtypes(landpatch%settyp(ipatch)) == 0 .and. landpatch%settyp(ipatch)/=CROPLAND) THEN
+#endif
                      patch_pft_s(npatch) = npft + 1
                      patch_pft_e(npatch) = npft + count(pctpft_patch(:,ipatch) > 0)
 
@@ -290,6 +311,7 @@ CONTAINS
 
       USE MOD_SPMD_Task
       USE MOD_LandPatch
+      USE MOD_Const_LC
       IMPLICIT NONE
 
       INTEGER :: ipatch, ipft
@@ -308,13 +330,19 @@ CONTAINS
 
          ipft = 1
          DO ipatch = 1, numpatch
-            IF (landpatch%settyp(ipatch) == 1) THEN
+            !IF (landpatch%settyp(ipatch) == 1) THEN
+#ifndef CROP
+            IF (patchtypes(landpatch%settyp(ipatch)) == 0) THEN
+#else
+            IF (patchtypes(landpatch%settyp(ipatch)) == 0 .and. landpatch%settyp(ipatch)/=CROPLAND) THEN
+#endif
 
                patch_pft_s(ipatch) = ipft
 
                DO WHILE (ipft <= numpft)
                   IF ((landpft%eindex(ipft) == landpatch%eindex(ipatch))  &
-                     .and. (landpft%ipxstt(ipft) == landpatch%ipxstt(ipatch))) THEN
+                     .and. (landpft%ipxstt(ipft) == landpatch%ipxstt(ipatch))  &
+                     .and. (landpft%settyp(ipft) < N_PFT)) THEN
                      pft2patch  (ipft  ) = ipatch
                      patch_pft_e(ipatch) = ipft
                      ipft = ipft + 1
