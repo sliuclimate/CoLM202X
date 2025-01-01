@@ -31,6 +31,7 @@ OBJS_SHARED =    \
 				  MOD_Const_Physical.o         \
 				  MOD_Const_LC.o               \
 				  MOD_Utils.o                  \
+				  MOD_UserDefFun.o             \
 				  MOD_TimeManager.o            \
 				  MOD_NetCDFSerial.o           \
 				  MOD_SingleSrfdata.o          \
@@ -43,10 +44,11 @@ OBJS_SHARED =    \
 				  MOD_5x5DataReadin.o          \
 				  MOD_Mesh.o                   \
 				  MOD_Pixelset.o               \
-				  MOD_NetCDFVector.o           \
+				  MOD_NetCDFVectorBlk.o        \
+				  MOD_NetCDFVectorOneS.o       \
+				  MOD_NetCDFVectorOneP.o       \
 				  MOD_RangeCheck.o             \
-				  MOD_Mapping_Grid2Pset.o      \
-				  MOD_Mapping_Pset2Grid.o      \
+				  MOD_SpatialMapping.o         \
 				  MOD_AggregationRequestData.o \
 				  MOD_PixelsetShared.o         \
 				  MOD_LandElm.o                \
@@ -75,6 +77,7 @@ OBJS_MKSRFDATA = \
 				  Aggregation_SoilParameters.o      \
 				  Aggregation_DBedrock.o            \
 				  Aggregation_Topography.o          \
+				  Aggregation_TopographyFactors.o   \
 				  Aggregation_Urban.o               \
 				  MOD_MeshFilter.o                  \
 				  MOD_RegionClip.o                  \
@@ -125,6 +128,7 @@ OBJS_BASIC =    \
 				 MOD_NdepData.o                 \
 				 MOD_FireData.o                 \
 				 MOD_OrbCoszen.o                \
+				 MOD_OrbCosazi.o                \
 				 MOD_3DCanopyRadiation.o        \
 				 MOD_Aerosol.o                  \
 				 MOD_SnowSnicar.o               \
@@ -219,7 +223,6 @@ OBJS_MAIN = \
 				MOD_Catch_SubsurfaceFlow.o                \
 				MOD_Catch_RiverLakeFlow.o                 \
 				MOD_Hydro_Hist.o                          \
-				MOD_Catch_LateralFlow.o                   \
 				MOD_BGC_CNCStateUpdate1.o                 \
 				MOD_BGC_CNCStateUpdate2.o                 \
 				MOD_BGC_CNCStateUpdate3.o                 \
@@ -266,6 +269,9 @@ OBJS_MAIN = \
 				MOD_LeafTemperature.o                     \
 				MOD_LeafTemperaturePC.o                   \
 				MOD_SoilThermalParameters.o               \
+				MOD_Hydro_VIC_Variables.o                 \
+				MOD_Hydro_VIC.o                           \
+				MOD_Runoff.o                              \
 				MOD_SoilSnowHydrology.o                   \
 				MOD_SnowLayersCombineDivide.o             \
 				MOD_PhaseChange.o                         \
@@ -288,8 +294,10 @@ OBJS_MAIN = \
 				MOD_HistVector.o                          \
 				MOD_HistSingle.o                          \
 				MOD_Hist.o                                \
+				MOD_CheckEquilibrium.o                    \
 				MOD_LightningData.o                       \
 				MOD_CaMa_colmCaMa.o                       \
+				MOD_Catch_LateralFlow.o                   \
 				MOD_Urban_Longwave.o                      \
 				MOD_Urban_NetSolar.o                      \
 				MOD_Urban_Flux.o                          \
@@ -303,7 +311,7 @@ OBJS_MAIN = \
 				MOD_Urban_BEM.o                           \
 				MOD_Urban_LUCY.o                          \
 				MOD_Urban_Thermal.o                       \
-				Urban_CoLMMAIN.o                          \
+				CoLMMAIN_Urban.o                          \
 				MOD_Lulcc_Vars_TimeInvariants.o           \
 				MOD_Lulcc_Vars_TimeVariables.o            \
 				MOD_Lulcc_Initialize.o                    \
@@ -316,6 +324,8 @@ OBJS_MAIN = \
 
 $(OBJS_MAIN) : %.o : %.F90 ${HEADER} ${OBJS_SHARED} ${OBJS_BASIC}
 	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD}.bld
+
+MOD_Urban_Thermal.o: MOD_Urban_Flux.o
 
 OBJS_MAIN_T = $(addprefix .bld/,${OBJS_MAIN})
 

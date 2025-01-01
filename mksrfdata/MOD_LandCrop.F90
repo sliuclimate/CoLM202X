@@ -3,59 +3,59 @@
 #ifdef CROP
 MODULE MOD_LandCrop
 
-   !------------------------------------------------------------------------------------
-   ! DESCRIPTION:
-   !
-   !    Build crop patches.
-   !
-   ! Created by Shupeng Zhang, Sep 2023
-   !    porting codes from Hua Yuan's OpenMP version to MPI parallel version.
-   !------------------------------------------------------------------------------------
+!------------------------------------------------------------------------------------
+! DESCRIPTION:
+!
+!    Build crop patches.
+!
+! Created by Shupeng Zhang, Sep 2023
+!    porting codes from Hua Yuan's OpenMP version to MPI parallel version.
+!------------------------------------------------------------------------------------
 
    USE MOD_Precision
    USE MOD_Grid
    IMPLICIT NONE
 
    ! ---- Instance ----
-   TYPE(grid_type) :: gcrop
-   INTEGER,  allocatable :: cropclass (:)
-   REAL(r8), allocatable :: pctshrpch (:)
+   type(grid_type) :: gcrop
+   integer,  allocatable :: cropclass (:)
+   real(r8), allocatable :: pctshrpch (:)
 
 CONTAINS
 
    ! -------------------------------
    SUBROUTINE landcrop_build (lc_year)
 
-      USE MOD_SPMD_Task
-      USE MOD_Namelist
-      USE MOD_Block
-      USE MOD_DataType
-      USE MOD_LandElm
+   USE MOD_SPMD_Task
+   USE MOD_Namelist
+   USE MOD_Block
+   USE MOD_DataType
+   USE MOD_LandElm
 #ifdef CATCHMENT
-      USE MOD_LandHRU
+   USE MOD_LandHRU
 #endif
-      USE MOD_LandPatch
-      USE MOD_NetCDFBlock
-      USE MOD_PixelsetShared
-      USE MOD_5x5DataReadin
+   USE MOD_LandPatch
+   USE MOD_NetCDFBlock
+   USE MOD_PixelsetShared
+   USE MOD_5x5DataReadin
 #ifdef SinglePoint
-      USE MOD_SingleSrfdata
+   USE MOD_SingleSrfdata
 #endif
 
-      IMPLICIT NONE
+   IMPLICIT NONE
 
-      INTEGER, intent(in) :: lc_year
+   integer, intent(in) :: lc_year
 
-      ! Local Variables
-      CHARACTER(len=255) :: cyear, file_patch, dir_5x5, suffix
-      INTEGER :: npatch_glb
-      TYPE(block_data_real8_2d) :: pctcrop_xy
-      TYPE(block_data_real8_3d) :: pctshared_xy
-      TYPE(block_data_real8_3d) :: cropdata
-      INTEGER :: sharedfilter(1), cropfilter(1)
-      integer :: iblkme, ib, jb
-      real(r8), allocatable :: pctshared  (:)
-      integer , allocatable :: classshared(:)
+   ! Local Variables
+   character(len=255) :: cyear, file_patch, dir_5x5, suffix
+   integer :: npatch_glb
+   type(block_data_real8_2d) :: pctcrop_xy
+   type(block_data_real8_3d) :: pctshared_xy
+   type(block_data_real8_3d) :: cropdata
+   integer :: sharedfilter(1), cropfilter(1)
+   integer :: iblkme, ib, jb
+   real(r8), allocatable :: pctshared  (:)
+   integer , allocatable :: classshared(:)
 
       write(cyear,'(i4.4)') lc_year
       IF (p_is_master) THEN
@@ -67,12 +67,18 @@ CONTAINS
 
          numpatch = count(SITE_pctcrop > 0.)
 
-         allocate (pctshrpch (numpatch))
+         allocate (pctshrpch(numpatch))
          allocate (cropclass(numpatch))
          cropclass = pack(SITE_croptyp, SITE_pctcrop > 0.)
          pctshrpch = pack(SITE_pctcrop, SITE_pctcrop > 0.)
 
          pctshrpch = pctshrpch / sum(pctshrpch)
+
+         IF (allocated(landpatch%eindex))  deallocate(landpatch%eindex)
+         IF (allocated(landpatch%ipxstt))  deallocate(landpatch%ipxstt)
+         IF (allocated(landpatch%ipxend))  deallocate(landpatch%ipxend)
+         IF (allocated(landpatch%settyp))  deallocate(landpatch%settyp)
+         IF (allocated(landpatch%ielm  ))  deallocate(landpatch%ielm  )
 
          allocate (landpatch%eindex (numpatch))
          allocate (landpatch%ipxstt (numpatch))
@@ -85,6 +91,10 @@ CONTAINS
          landpatch%ipxstt(:) = 1
          landpatch%ipxend(:) = 1
          landpatch%settyp(:) = CROPLAND
+         
+         landpatch%has_shared = .true.
+         allocate (landpatch%pctshared(numpatch))
+         landpatch%pctshared = pctshrpch
 
          landpatch%nset = numpatch
          CALL landpatch%set_vecgs
@@ -116,8 +126,13 @@ CONTAINS
       
       sharedfilter = (/ 1 /)
 
-      CALL pixelsetshared_build (landpatch, gpatch, pctshared_xy, 2, sharedfilter, &
-         pctshared, classshared)
+      IF (landpatch%has_shared) then
+         CALL pixelsetshared_build (landpatch, gpatch, pctshared_xy, 2, sharedfilter, &
+            pctshared, classshared, fracin = landpatch%pctshared)
+      ELSE
+         CALL pixelsetshared_build (landpatch, gpatch, pctshared_xy, 2, sharedfilter, &
+            pctshared, classshared)
+      ENDIF
 
       IF (p_is_worker) THEN
          IF (landpatch%nset > 0) THEN
@@ -135,8 +150,22 @@ CONTAINS
       
       CALL pixelsetshared_build (landpatch, gcrop, cropdata, N_CFT, cropfilter, &
          pctshrpch, cropclass, fracin = pctshared)
+
+      cropclass = cropclass + N_PFT - 1
       
       numpatch = landpatch%nset
+
+      landpatch%has_shared = .true.
+      IF (p_is_worker) THEN
+         IF (numpatch > 0) THEN
+            IF (allocated(landpatch%pctshared)) THEN
+               deallocate(landpatch%pctshared)
+            ENDIF
+
+            allocate(landpatch%pctshared(numpatch))
+            landpatch%pctshared = pctshrpch
+         ENDIF
+      ENDIF
 
       IF (allocated(pctshared  )) deallocate(pctshared  )
       IF (allocated(classshared)) deallocate(classshared)
@@ -154,9 +183,9 @@ CONTAINS
       write(*,'(A,I12,A)') 'Total: ', numpatch, ' patches.'
 #endif
 
-      CALL elm_patch%build (landelm, landpatch, use_frac = .true., sharedfrac = pctshrpch)
+      CALL elm_patch%build (landelm, landpatch, use_frac = .true.)
 #ifdef CATCHMENT
-      CALL hru_patch%build (landhru, landpatch, use_frac = .true., sharedfrac = pctshrpch)
+      CALL hru_patch%build (landhru, landpatch, use_frac = .true.)
 #endif
 
       CALL write_patchfrac (DEF_dir_landdata, lc_year)

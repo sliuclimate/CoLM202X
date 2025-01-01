@@ -2,151 +2,183 @@
 
 #ifdef SinglePoint
 MODULE MOD_SingleSrfdata
-   !-----------------------------------------------------------------------------------------
-   ! DESCRIPTION:
-   !
-   !    This module includes subroutines to read or write surface data for "SinglePoint".
-   !
-   ! Created by Shupeng Zhang, May 2023
-   !-----------------------------------------------------------------------------------------
+!-----------------------------------------------------------------------------------------
+! DESCRIPTION:
+!
+!    This module includes subroutines to read or write surface data for "SinglePoint".
+!
+! Created by Shupeng Zhang, May 2023
+!-----------------------------------------------------------------------------------------
 
    USE MOD_Precision, only: r8
    USE MOD_Vars_Global
    USE MOD_Const_LC
    USE MOD_Namelist
+   USE MOD_SPMD_Task
    IMPLICIT NONE
    SAVE
 
-   REAL(r8) :: SITE_lon_location = 0.
-   REAL(r8) :: SITE_lat_location = 0.
-
-   INTEGER  :: SITE_landtype = 1
-
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
-   INTEGER,  allocatable :: SITE_pfttyp  (:)
-   REAL(r8), allocatable :: SITE_pctpfts (:)
+   integer,  allocatable :: SITE_pfttyp  (:)
+   real(r8), allocatable :: SITE_pctpfts (:)
 #endif
 
 #ifdef CROP
-   REAL(r8), allocatable :: SITE_croptyp (:)
-   REAL(r8), allocatable :: SITE_pctcrop (:)
+   integer,  allocatable :: SITE_croptyp (:)
+   real(r8), allocatable :: SITE_pctcrop (:)
 #endif
 
-   REAL(r8) :: SITE_htop
+   real(r8) :: SITE_htop
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
-   REAL(r8), allocatable :: SITE_htop_pfts (:)
+   real(r8), allocatable :: SITE_htop_pfts (:)
 #endif
 
-   REAL(r8), allocatable :: SITE_LAI_monthly (:,:)
-   REAL(r8), allocatable :: SITE_SAI_monthly (:,:)
+   real(r8), allocatable :: SITE_LAI_monthly (:,:)
+   real(r8), allocatable :: SITE_SAI_monthly (:,:)
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
-   REAL(r8), allocatable :: SITE_LAI_pfts_monthly (:,:,:)
-   REAL(r8), allocatable :: SITE_SAI_pfts_monthly (:,:,:)
+   real(r8), allocatable :: SITE_LAI_pfts_monthly (:,:,:)
+   real(r8), allocatable :: SITE_SAI_pfts_monthly (:,:,:)
 #endif
 
-   INTEGER,  allocatable :: SITE_LAI_year (:)
-   REAL(r8), allocatable :: SITE_LAI_8day (:,:)
+   integer,  allocatable :: SITE_LAI_year (:)
+   real(r8), allocatable :: SITE_LAI_8day (:,:)
 
-   REAL(r8) :: SITE_lakedepth = 1.
+   real(r8) :: SITE_lakedepth = 1.
 
-   REAL(r8) :: SITE_soil_s_v_alb
-   REAL(r8) :: SITE_soil_d_v_alb
-   REAL(r8) :: SITE_soil_s_n_alb
-   REAL(r8) :: SITE_soil_d_n_alb
+   real(r8) :: SITE_soil_s_v_alb
+   real(r8) :: SITE_soil_d_v_alb
+   real(r8) :: SITE_soil_s_n_alb
+   real(r8) :: SITE_soil_d_n_alb
 
-   REAL(r8), allocatable :: SITE_soil_vf_quartz_mineral (:)
-   REAL(r8), allocatable :: SITE_soil_vf_gravels        (:)
-   REAL(r8), allocatable :: SITE_soil_vf_sand           (:)
-   REAL(r8), allocatable :: SITE_soil_vf_om             (:)
-   REAL(r8), allocatable :: SITE_soil_wf_gravels        (:)
-   REAL(r8), allocatable :: SITE_soil_wf_sand           (:)
-   REAL(r8), allocatable :: SITE_soil_OM_density        (:)
-   REAL(r8), allocatable :: SITE_soil_BD_all            (:)
-   REAL(r8), allocatable :: SITE_soil_theta_s           (:)
-   REAL(r8), allocatable :: SITE_soil_k_s               (:)
-   REAL(r8), allocatable :: SITE_soil_csol              (:)
-   REAL(r8), allocatable :: SITE_soil_tksatu            (:)
-   REAL(r8), allocatable :: SITE_soil_tksatf            (:)
-   REAL(r8), allocatable :: SITE_soil_tkdry             (:)
-   REAL(r8), allocatable :: SITE_soil_k_solids          (:)
-   REAL(r8), allocatable :: SITE_soil_psi_s             (:)
-   REAL(r8), allocatable :: SITE_soil_lambda            (:)
+   real(r8), allocatable :: SITE_soil_vf_quartz_mineral (:)
+   real(r8), allocatable :: SITE_soil_vf_gravels        (:)
+   real(r8), allocatable :: SITE_soil_vf_sand           (:)
+   real(r8), allocatable :: SITE_soil_vf_om             (:)
+   real(r8), allocatable :: SITE_soil_wf_gravels        (:)
+   real(r8), allocatable :: SITE_soil_wf_sand           (:)
+   real(r8), allocatable :: SITE_soil_OM_density        (:)
+   real(r8), allocatable :: SITE_soil_BD_all            (:)
+   real(r8), allocatable :: SITE_soil_theta_s           (:)
+   real(r8), allocatable :: SITE_soil_k_s               (:)
+   real(r8), allocatable :: SITE_soil_csol              (:)
+   real(r8), allocatable :: SITE_soil_tksatu            (:)
+   real(r8), allocatable :: SITE_soil_tksatf            (:)
+   real(r8), allocatable :: SITE_soil_tkdry             (:)
+   real(r8), allocatable :: SITE_soil_k_solids          (:)
+   real(r8), allocatable :: SITE_soil_psi_s             (:)
+   real(r8), allocatable :: SITE_soil_lambda            (:)
+   real(r8), allocatable :: SITE_soil_theta_r           (:)
 #ifdef vanGenuchten_Mualem_SOIL_MODEL
-   REAL(r8), allocatable :: SITE_soil_theta_r           (:)
-   REAL(r8), allocatable :: SITE_soil_alpha_vgm         (:)
-   REAL(r8), allocatable :: SITE_soil_L_vgm             (:)
-   REAL(r8), allocatable :: SITE_soil_n_vgm             (:)
+   real(r8), allocatable :: SITE_soil_alpha_vgm         (:)
+   real(r8), allocatable :: SITE_soil_L_vgm             (:)
+   real(r8), allocatable :: SITE_soil_n_vgm             (:)
 #endif
-   REAL(r8), allocatable :: SITE_soil_BA_alpha          (:)
-   REAL(r8), allocatable :: SITE_soil_BA_beta           (:)
+   real(r8), allocatable :: SITE_soil_BA_alpha          (:)
+   real(r8), allocatable :: SITE_soil_BA_beta           (:)
 
-   REAL(r8) :: SITE_dbedrock = 0.
+   real(r8) :: SITE_dbedrock = 0.
 
-   REAL(r8) :: SITE_topography = 0.
+   real(r8) :: SITE_topography = 0.
+   real(r8) :: SITE_topostd    = 0.
 
-   INTEGER , allocatable :: SITE_urbtyp   (:)
+   ! topography factors used for downscaling
+   real(r8) :: SITE_svf = 0.
+   real(r8) :: SITE_cur = 0.
+   real(r8), allocatable :: SITE_slp_type(:)
+   real(r8), allocatable :: SITE_asp_type(:)
+   real(r8), allocatable :: SITE_area_type(:)
+   real(r8), allocatable :: SITE_sf_lut(:,:)
 
-   REAL(r8), allocatable :: SITE_lucyid   (:)
 
-   REAL(r8), allocatable :: SITE_fveg_urb (:)
-   REAL(r8), allocatable :: SITE_htop_urb (:)
-   REAL(r8), allocatable :: SITE_flake_urb(:)
-   REAL(r8), allocatable :: SITE_froof    (:)
-   REAL(r8), allocatable :: SITE_hroof    (:)
-   REAL(r8), allocatable :: SITE_fgimp    (:)
-   REAL(r8), allocatable :: SITE_fgper    (:)
-   REAL(r8), allocatable :: SITE_hwr      (:)
-   REAL(r8), allocatable :: SITE_popden   (:)
+   integer , allocatable :: SITE_urbtyp   (:)
 
-   REAL(r8), allocatable :: SITE_em_roof  (:)
-   REAL(r8), allocatable :: SITE_em_wall  (:)
-   REAL(r8), allocatable :: SITE_em_gimp  (:)
-   REAL(r8), allocatable :: SITE_em_gper  (:)
-   REAL(r8), allocatable :: SITE_t_roommax(:)
-   REAL(r8), allocatable :: SITE_t_roommin(:)
-   REAL(r8), allocatable :: SITE_thickroof(:)
-   REAL(r8), allocatable :: SITE_thickwall(:)
+   real(r8), allocatable :: SITE_lucyid   (:)
 
-   REAL(r8), allocatable :: SITE_cv_roof  (:)
-   REAL(r8), allocatable :: SITE_cv_wall  (:)
-   REAL(r8), allocatable :: SITE_cv_gimp  (:)
-   REAL(r8), allocatable :: SITE_tk_roof  (:)
-   REAL(r8), allocatable :: SITE_tk_wall  (:)
-   REAL(r8), allocatable :: SITE_tk_gimp  (:)
+   real(r8), allocatable :: SITE_fveg_urb (:)
+   real(r8), allocatable :: SITE_htop_urb (:)
+   real(r8), allocatable :: SITE_flake_urb(:)
+   real(r8), allocatable :: SITE_froof    (:)
+   real(r8), allocatable :: SITE_hroof    (:)
+   real(r8), allocatable :: SITE_fgimp    (:)
+   real(r8), allocatable :: SITE_fgper    (:)
+   real(r8), allocatable :: SITE_hlr      (:)
+   real(r8), allocatable :: SITE_lambdaw  (:)
+   real(r8), allocatable :: SITE_popden   (:)
 
-   REAL(r8), allocatable :: SITE_alb_roof (:,:)
-   REAL(r8), allocatable :: SITE_alb_wall (:,:)
-   REAL(r8), allocatable :: SITE_alb_gimp (:,:)
-   REAL(r8), allocatable :: SITE_alb_gper (:,:)
+   real(r8), allocatable :: SITE_em_roof  (:)
+   real(r8), allocatable :: SITE_em_wall  (:)
+   real(r8), allocatable :: SITE_em_gimp  (:)
+   real(r8), allocatable :: SITE_em_gper  (:)
+   real(r8), allocatable :: SITE_t_roommax(:)
+   real(r8), allocatable :: SITE_t_roommin(:)
+   real(r8), allocatable :: SITE_thickroof(:)
+   real(r8), allocatable :: SITE_thickwall(:)
+
+   real(r8), allocatable :: SITE_cv_roof  (:)
+   real(r8), allocatable :: SITE_cv_wall  (:)
+   real(r8), allocatable :: SITE_cv_gimp  (:)
+   real(r8), allocatable :: SITE_tk_roof  (:)
+   real(r8), allocatable :: SITE_tk_wall  (:)
+   real(r8), allocatable :: SITE_tk_gimp  (:)
+
+   real(r8), allocatable :: SITE_alb_roof (:,:)
+   real(r8), allocatable :: SITE_alb_wall (:,:)
+   real(r8), allocatable :: SITE_alb_gimp (:,:)
+   real(r8), allocatable :: SITE_alb_gper (:,:)
 
 CONTAINS
 
    ! -----
    SUBROUTINE read_surface_data_single (fsrfdata, mksrfdata)
 
-      USE MOD_TimeManager
-      USE MOD_NetCDFSerial
-      USE MOD_Namelist
-      USE MOD_Utils
-      USE MOD_Vars_Global, only : PI
-      IMPLICIT NONE
+   USE MOD_TimeManager
+   USE MOD_NetCDFSerial
+   USE MOD_Namelist
+   USE MOD_Utils
+   USE MOD_Vars_Global, only : PI
+   IMPLICIT NONE
 
-      CHARACTER(len=*), intent(in) :: fsrfdata
-      LOGICAL, intent(in) :: mksrfdata
+   character(len=*), intent(in) :: fsrfdata
+   logical, intent(in) :: mksrfdata
 
-      ! Local Variables
-      INTEGER :: iyear, itime
+   ! Local Variables
+   real(r8) :: lat_in, lon_in
+   integer  :: iyear, itime
 
-      CALL ncio_read_serial (fsrfdata, 'latitude',  SITE_lat_location)
-      CALL ncio_read_serial (fsrfdata, 'longitude', SITE_lon_location)
+      IF (ncio_var_exist(fsrfdata, 'latitude')) THEN
+         CALL ncio_read_serial (fsrfdata, 'latitude',  lat_in)
+         IF (lat_in /= SITE_lat_location) THEN
+            write(*,*) 'Warning: Latitude mismatch: ', &
+               lat_in, ' in data file and ', SITE_lat_location, 'in namelist.'
+         ENDIF
+         SITE_lat_location = lat_in
+      ENDIF
 
-#ifdef LULC_USGS
-      CALL ncio_read_serial (fsrfdata, 'USGS_classification', SITE_landtype)
-#else
-      CALL ncio_read_serial (fsrfdata, 'IGBP_classification', SITE_landtype)
-#endif
+      IF (ncio_var_exist(fsrfdata, 'longitude')) THEN
+         CALL ncio_read_serial (fsrfdata, 'longitude', lon_in)
+         IF (lon_in /= SITE_lon_location) THEN
+            write(*,*) 'Warning: Longitude mismatch: ', &
+               lon_in, ' in data file and ', SITE_lon_location, 'in namelist.'
+         ENDIF
+         SITE_lon_location = lon_in
+      ENDIF
 
       CALL normalize_longitude (SITE_lon_location)
+
+      IF (USE_SITE_landtype) THEN
+         IF (trim(fsrfdata) /= 'null') THEN
+#ifdef LULC_USGS
+            CALL ncio_read_serial (fsrfdata, 'USGS_classification', SITE_landtype)
+#else
+            CALL ncio_read_serial (fsrfdata, 'IGBP_classification', SITE_landtype)
+#endif
+         ENDIF
+
+         IF (SITE_landtype < 0) THEN
+            write(*,*) 'Error! Please set namelist SITE_landtype first!'
+            CALL CoLM_stop()
+         ENDIF
+      ENDIF
 
       DEF_domain%edges = floor(SITE_lat_location)
       DEF_domain%edgen = DEF_domain%edges + 1.0
@@ -172,11 +204,9 @@ CONTAINS
 
 #ifdef CROP
       IF ((.not. mksrfdata) .or. USE_SITE_pctcrop) THEN
-         IF (SITE_landtype == CROPLAND) THEN
-            CALL ncio_read_serial (fsrfdata, 'croptyp', SITE_croptyp)
-            CALL ncio_read_serial (fsrfdata, 'pctcrop', SITE_pctcrop)
-            ! otherwise, retrieve from database by MOD_LandPatch.F90
-         ENDIF
+         CALL ncio_read_serial (fsrfdata, 'croptyp', SITE_croptyp)
+         CALL ncio_read_serial (fsrfdata, 'pctcrop', SITE_pctcrop)
+         ! otherwise, retrieve from database by MOD_LandPatch.F90
       ENDIF
 #endif
 
@@ -244,6 +274,8 @@ CONTAINS
          CALL ncio_read_serial (fsrfdata, 'soil_alpha_vgm        ', SITE_soil_alpha_vgm        )
          CALL ncio_read_serial (fsrfdata, 'soil_L_vgm            ', SITE_soil_L_vgm            )
          CALL ncio_read_serial (fsrfdata, 'soil_n_vgm            ', SITE_soil_n_vgm            )
+#else
+         !SITE_soil_theta_r(:) = 0.
 #endif
          CALL ncio_read_serial (fsrfdata, 'soil_BA_alpha         ', SITE_soil_BA_alpha         )
          CALL ncio_read_serial (fsrfdata, 'soil_BA_beta          ', SITE_soil_BA_beta          )
@@ -259,26 +291,63 @@ CONTAINS
       IF ((.not. mksrfdata) .or. USE_SITE_topography) THEN
          ! otherwise, retrieve from database by Aggregation_Topography.F90
          CALL ncio_read_serial (fsrfdata, 'elevation', SITE_topography)
+         CALL ncio_read_serial (fsrfdata, 'elvstd   ', SITE_topostd   )
+
+         IF (DEF_USE_Forcing_Downscaling) THEN
+            CALL ncio_read_serial (fsrfdata, 'SITE_svf' , SITE_svf            )
+            CALL ncio_read_serial (fsrfdata, 'SITE_cur' , SITE_cur            )
+            CALL ncio_read_serial (fsrfdata, 'SITE_slp_type' , SITE_slp_type  )
+            CALL ncio_read_serial (fsrfdata, 'SITE_asp_type' , SITE_asp_type  )
+            CALL ncio_read_serial (fsrfdata, 'SITE_area_type', SITE_area_type )
+            CALL ncio_read_serial (fsrfdata, 'SITE_sf_lut'   , SITE_sf_lut    )
+         ENDIF
       ENDIF
 
    END SUBROUTINE read_surface_data_single
 
    ! -----
    SUBROUTINE read_urban_surface_data_single (fsrfdata, mksrfdata, mkrun)
-      USE MOD_TimeManager
-      USE MOD_NetCDFSerial
-      USE MOD_Namelist
-      USE MOD_Utils
-      USE MOD_Vars_Global, only : PI, URBAN
-      IMPLICIT NONE
 
-      CHARACTER(len=*), intent(in) :: fsrfdata
-      LOGICAL, intent(in) :: mksrfdata
-      LOGICAL, intent(in), optional :: mkrun
+   USE MOD_TimeManager
+   USE MOD_NetCDFSerial
+   USE MOD_Namelist
+   USE MOD_Utils
+   USE MOD_Vars_Global, only: PI, URBAN
+   IMPLICIT NONE
 
-      SITE_landtype = URBAN
-      CALL ncio_read_serial (fsrfdata, 'latitude',  SITE_lat_location)
-      CALL ncio_read_serial (fsrfdata, 'longitude', SITE_lon_location)
+   character(len=*), intent(in) :: fsrfdata
+   logical, intent(in) :: mksrfdata
+   logical, intent(in), optional :: mkrun
+
+   ! Local Variables
+   real(r8) :: lat_in, lon_in
+
+      IF (ncio_var_exist(fsrfdata, 'latitude')) THEN
+         CALL ncio_read_serial (fsrfdata, 'latitude',  lat_in)
+         IF (lat_in /= SITE_lat_location) THEN
+            write(*,*) 'Warning: Latitude mismatch: ', &
+               lat_in, ' in data file and ', SITE_lat_location, 'in namelist.'
+         ENDIF
+         SITE_lat_location = lat_in
+      ENDIF
+
+      IF (ncio_var_exist(fsrfdata, 'longitude')) THEN
+         CALL ncio_read_serial (fsrfdata, 'longitude', lon_in)
+         IF (lon_in /= SITE_lon_location) THEN
+            write(*,*) 'Warning: Longitude mismatch: ', &
+               lon_in, ' in data file and ', SITE_lon_location, 'in namelist.'
+         ENDIF
+         SITE_lon_location = lon_in
+      ENDIF
+
+      CALL normalize_longitude (SITE_lon_location)
+
+      IF (trim(fsrfdata) /= 'null') THEN
+         SITE_landtype = URBAN
+      ELSEIF (SITE_landtype /= URBAN) THEN
+         write(*,*) 'Error! Please set namelist SITE_landtype first!'
+         CALL CoLM_stop()
+      ENDIF
 
       DEF_domain%edges = floor(SITE_lat_location)
       DEF_domain%edgen = DEF_domain%edges + 1.0
@@ -298,12 +367,18 @@ CONTAINS
             CALL ncio_read_serial (fsrfdata, 'roof_area_fraction'         , SITE_froof     )
             CALL ncio_read_serial (fsrfdata, 'building_mean_height'       , SITE_hroof     )
             CALL ncio_read_serial (fsrfdata, 'impervious_area_fraction'   , SITE_fgimp     )
-            CALL ncio_read_serial (fsrfdata, 'canyon_height_width_ratio'  , SITE_hwr       )
+            CALL ncio_read_serial (fsrfdata, 'wall_to_plan_area_ratio'    , SITE_lambdaw   )
             CALL ncio_read_serial (fsrfdata, 'resident_population_density', SITE_popden    )
+IF (DEF_USE_CANYON_HWR) THEN
+            CALL ncio_read_serial (fsrfdata, 'canyon_height_width_ratio'  , SITE_hlr       )
+ELSE
+            CALL ncio_read_serial (fsrfdata, 'wall_to_plan_area_ratio'    , SITE_lambdaw   )
+            SITE_hlr       = SITE_lambdaw/4/SITE_froof
+ENDIF
 
-            SITE_fgper    = 1 - (SITE_fgimp-SITE_froof)/(1-SITE_froof-SITE_flake_urb)
-            SITE_fveg_urb = SITE_fveg_urb * 100
-            SITE_flake_urb= SITE_flake_urb* 100
+            SITE_fgper     = 1 - (SITE_fgimp-SITE_froof)/(1-SITE_froof-SITE_flake_urb)
+            SITE_fveg_urb  = SITE_fveg_urb  * 100
+            SITE_flake_urb = SITE_flake_urb * 100
          ENDIF
       ELSE
          CALL ncio_read_serial (fsrfdata, 'LAI_year'      , SITE_LAI_year   )
@@ -318,7 +393,7 @@ CONTAINS
          CALL ncio_read_serial (fsrfdata, 'WT_ROOF'       , SITE_froof      )
          CALL ncio_read_serial (fsrfdata, 'HT_ROOF'       , SITE_hroof      )
          CALL ncio_read_serial (fsrfdata, 'WTROAD_PERV'   , SITE_fgper      )
-         CALL ncio_read_serial (fsrfdata, 'CANYON_HWR'    , SITE_hwr        )
+         CALL ncio_read_serial (fsrfdata, 'BUILDING_HLR'  , SITE_hlr        )
          CALL ncio_read_serial (fsrfdata, 'POP_DEN'       , SITE_popden     )
 
          CALL ncio_read_serial (fsrfdata, 'EM_ROOF'       , SITE_em_roof    )
@@ -380,6 +455,8 @@ CONTAINS
          CALL ncio_read_serial (fsrfdata, 'soil_alpha_vgm        ', SITE_soil_alpha_vgm        )
          CALL ncio_read_serial (fsrfdata, 'soil_L_vgm            ', SITE_soil_L_vgm            )
          CALL ncio_read_serial (fsrfdata, 'soil_n_vgm            ', SITE_soil_n_vgm            )
+#else
+         !SITE_soil_theta_r(:) = 0.
 #endif
          CALL ncio_read_serial (fsrfdata, 'soil_BA_alpha         ', SITE_soil_BA_alpha         )
          CALL ncio_read_serial (fsrfdata, 'soil_BA_beta          ', SITE_soil_BA_beta          )
@@ -395,6 +472,16 @@ CONTAINS
       IF ((.not. mksrfdata) .or. USE_SITE_topography) THEN
          ! otherwise, retrieve from database by Aggregation_Topography.F90
          CALL ncio_read_serial (fsrfdata, 'elevation', SITE_topography)
+         CALL ncio_read_serial (fsrfdata, 'elvstd   ', SITE_topostd   )
+
+         IF (DEF_USE_Forcing_Downscaling) THEN
+            CALL ncio_read_serial (fsrfdata, 'SITE_svf', SITE_svf             )
+            CALL ncio_read_serial (fsrfdata, 'SITE_cur', SITE_cur             )
+            CALL ncio_read_serial (fsrfdata, 'SITE_slp_type' , SITE_slp_type  )
+            CALL ncio_read_serial (fsrfdata, 'SITE_asp_type' , SITE_asp_type  )
+            CALL ncio_read_serial (fsrfdata, 'SITE_area_type', SITE_area_type )
+            CALL ncio_read_serial (fsrfdata, 'SITE_sf_lut'   , SITE_sf_lut    )
+         ENDIF
       ENDIF
 
    END SUBROUTINE read_urban_surface_data_single
@@ -402,24 +489,27 @@ CONTAINS
    ! -----
    SUBROUTINE write_surface_data_single (numpatch, numpft)
 
-      USE MOD_NetCDFSerial
-      USE MOD_Namelist
-      USE MOD_Const_LC
-      IMPLICIT NONE
+   USE MOD_NetCDFSerial
+   USE MOD_Namelist
+   USE MOD_Const_LC
+   IMPLICIT NONE
 
-      INTEGER, intent(in) :: numpatch
-      INTEGER, intent(in), optional :: numpft
+   integer, intent(in) :: numpatch
+   integer, intent(in), optional :: numpft
 
-      ! Local Variables
-      CHARACTER(len=256) :: fsrfdata
-      INTEGER :: ipft, iyear, itime
-      CHARACTER(len=8)   :: source
+   ! Local Variables
+   character(len=256) :: fsrfdata
+   integer :: ipft, iyear, itime
+   character(len=8)   :: source
 
       fsrfdata = trim(DEF_dir_landdata) // '/srfdata.nc'
 
       CALL ncio_create_file (fsrfdata)
 
       CALL ncio_define_dimension (fsrfdata, 'soil',  nl_soil )
+      CALL ncio_define_dimension (fsrfdata, 'azi', num_azimuth)
+      CALL ncio_define_dimension (fsrfdata, 'zen', num_zenith)
+      CALL ncio_define_dimension (fsrfdata, 'slope_type', num_slope_type)
       CALL ncio_define_dimension (fsrfdata, 'patch', numpatch)
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
       CALL ncio_define_dimension (fsrfdata, 'pft', numpft)
@@ -558,28 +648,46 @@ CONTAINS
       CALL ncio_write_serial (fsrfdata, 'elevation', SITE_topography)
       CALL ncio_put_attr     (fsrfdata, 'elevation', 'source', datasource(USE_SITE_topography))
 
+      CALL ncio_write_serial (fsrfdata, 'elvstd', SITE_topostd)
+      CALL ncio_put_attr     (fsrfdata, 'elvstd', 'source', datasource(USE_SITE_topography))
+
+      ! used for downscaling
+      IF (DEF_USE_Forcing_Downscaling) THEN
+         CALL ncio_write_serial (fsrfdata, 'SITE_svf', SITE_svf)
+         CALL ncio_write_serial (fsrfdata, 'SITE_cur', SITE_cur)
+         CALL ncio_write_serial (fsrfdata, 'SITE_sf_lut'   , SITE_sf_lut, 'azi', 'zen')
+         CALL ncio_write_serial (fsrfdata, 'SITE_slp_type' , SITE_slp_type , 'type')
+         CALL ncio_write_serial (fsrfdata, 'SITE_asp_type' , SITE_asp_type , 'type')
+         CALL ncio_write_serial (fsrfdata, 'SITE_area_type', SITE_area_type, 'type')
+      ENDIF
+
    END SUBROUTINE write_surface_data_single
 
    ! -----
    SUBROUTINE write_urban_surface_data_single (numurban)
 
-      USE MOD_NetCDFSerial
-      USE MOD_Namelist
-      USE MOD_Const_LC
-      IMPLICIT NONE
+   USE MOD_NetCDFSerial
+   USE MOD_Namelist
+   USE MOD_Const_LC
+   IMPLICIT NONE
 
-      INTEGER, intent(in) :: numurban
+   integer, intent(in) :: numurban
 
-      ! Local Variables
-      CHARACTER(len=256) :: fsrfdata
-      INTEGER :: iyear, itime
-      CHARACTER(len=8)   :: source
+   ! Local Variables
+   character(len=256) :: fsrfdata
+   integer :: iyear, itime
+   character(len=8)   :: source
 
       fsrfdata = trim(DEF_dir_landdata) // '/srfdata.nc'
 
       CALL ncio_create_file (fsrfdata)
 
       CALL ncio_define_dimension (fsrfdata, 'soil',  nl_soil )
+
+      CALL ncio_define_dimension (fsrfdata, 'azi', num_azimuth)
+      CALL ncio_define_dimension (fsrfdata, 'zen', num_zenith)
+      CALL ncio_define_dimension (fsrfdata, 'slope_type', num_slope_type)
+
       CALL ncio_define_dimension (fsrfdata, 'patch', numurban)
 
       CALL ncio_define_dimension (fsrfdata, 'LAI_year', size(SITE_LAI_year))
@@ -612,7 +720,7 @@ CONTAINS
       CALL ncio_write_serial (fsrfdata, 'WT_ROOF'       , SITE_froof      , 'patch')
       CALL ncio_write_serial (fsrfdata, 'HT_ROOF'       , SITE_hroof      , 'patch')
       CALL ncio_write_serial (fsrfdata, 'WTROAD_PERV'   , SITE_fgper      , 'patch')
-      CALL ncio_write_serial (fsrfdata, 'CANYON_HWR'    , SITE_hwr        , 'patch')
+      CALL ncio_write_serial (fsrfdata, 'BUILDING_HLR'  , SITE_hlr        , 'patch')
       CALL ncio_write_serial (fsrfdata, 'POP_DEN'       , SITE_popden     , 'patch')
 
       CALL ncio_put_attr     (fsrfdata, 'PCT_Tree'      , 'source', source)
@@ -621,7 +729,7 @@ CONTAINS
       CALL ncio_put_attr     (fsrfdata, 'WT_ROOF'       , 'source', source)
       CALL ncio_put_attr     (fsrfdata, 'HT_ROOF'       , 'source', source)
       CALL ncio_put_attr     (fsrfdata, 'WTROAD_PERV'   , 'source', source)
-      CALL ncio_put_attr     (fsrfdata, 'CANYON_HWR'    , 'source', source)
+      CALL ncio_put_attr     (fsrfdata, 'BUILDING_HLR'  , 'source', source)
       CALL ncio_put_attr     (fsrfdata, 'POP_DEN'       , 'source', source)
 
       source = datasource(USE_SITE_thermal_paras)
@@ -735,12 +843,36 @@ CONTAINS
       CALL ncio_write_serial (fsrfdata, 'elevation', SITE_topography)
       CALL ncio_put_attr     (fsrfdata, 'elevation', 'source', datasource(USE_SITE_topography))
 
-   END SUBROUTINE write_urban_surface_data_single
-   ! ---------
-   CHARACTER(len=8) FUNCTION datasource (is_site)
+      CALL ncio_write_serial (fsrfdata, 'elvstd', SITE_topostd)
+      CALL ncio_put_attr     (fsrfdata, 'elvstd', 'source', datasource(USE_SITE_topography))
 
-      IMPLICIT NONE
-      LOGICAL, intent(in) :: is_site
+      IF (DEF_USE_Forcing_Downscaling) THEN
+         ! used for downscaling
+         CALL ncio_write_serial (fsrfdata, 'SITE_svf', SITE_svf)
+         CALL ncio_write_serial (fsrfdata, 'SITE_cur', SITE_cur)
+         CALL ncio_write_serial (fsrfdata, 'SITE_sf_lut'   , SITE_sf_lut, 'azi', 'zen')
+         CALL ncio_write_serial (fsrfdata, 'SITE_slp_type' , SITE_slp_type , 'type')
+         CALL ncio_write_serial (fsrfdata, 'SITE_asp_type' , SITE_asp_type , 'type')
+         CALL ncio_write_serial (fsrfdata, 'SITE_area_type', SITE_area_type, 'type')
+      ENDIF
+
+      ! used for downscaling
+      IF (DEF_USE_Forcing_Downscaling) THEN
+         CALL ncio_write_serial (fsrfdata, 'SITE_svf', SITE_svf)
+         CALL ncio_write_serial (fsrfdata, 'SITE_cur', SITE_cur)
+         CALL ncio_write_serial (fsrfdata, 'SITE_sf_lut', SITE_sf_lut, 'azi', 'zen')
+         CALL ncio_write_serial (fsrfdata, 'SITE_slp_type', SITE_slp_type, 'type')
+         CALL ncio_write_serial (fsrfdata, 'SITE_asp_type', SITE_asp_type, 'type')
+         CALL ncio_write_serial (fsrfdata, 'SITE_area_type', SITE_area_type, 'type')
+      ENDIF
+
+   END SUBROUTINE write_urban_surface_data_single
+
+   ! ---------
+   character(len=8) FUNCTION datasource (is_site)
+
+   IMPLICIT NONE
+   logical, intent(in) :: is_site
 
       IF (is_site) THEN
          datasource = 'SITE'
@@ -753,7 +885,7 @@ CONTAINS
    ! ------
    SUBROUTINE single_srfdata_final ()
 
-      IMPLICIT NONE
+   IMPLICIT NONE
 
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
       IF (allocated(SITE_pfttyp )) deallocate(SITE_pfttyp )
@@ -796,14 +928,19 @@ CONTAINS
       IF (allocated(SITE_soil_k_solids         )) deallocate(SITE_soil_k_solids         )
       IF (allocated(SITE_soil_psi_s            )) deallocate(SITE_soil_psi_s            )
       IF (allocated(SITE_soil_lambda           )) deallocate(SITE_soil_lambda           )
-#ifdef vanGenuchten_Mualem_SOIL_MODEL
       IF (allocated(SITE_soil_theta_r          )) deallocate(SITE_soil_theta_r          )
+#ifdef vanGenuchten_Mualem_SOIL_MODEL
       IF (allocated(SITE_soil_alpha_vgm        )) deallocate(SITE_soil_alpha_vgm        )
       IF (allocated(SITE_soil_L_vgm            )) deallocate(SITE_soil_L_vgm            )
       IF (allocated(SITE_soil_n_vgm            )) deallocate(SITE_soil_n_vgm            )
 #endif
       IF (allocated(SITE_soil_BA_alpha         )) deallocate(SITE_soil_BA_alpha         )
       IF (allocated(SITE_soil_BA_beta          )) deallocate(SITE_soil_BA_beta          )
+
+      IF (allocated(SITE_sf_lut                )) deallocate(SITE_sf_lut                )
+      IF (allocated(SITE_slp_type              )) deallocate(SITE_slp_type              )
+      IF (allocated(SITE_asp_type              )) deallocate(SITE_asp_type              )
+      IF (allocated(SITE_area_type             )) deallocate(SITE_area_type             )
 
    END SUBROUTINE single_srfdata_final
 
