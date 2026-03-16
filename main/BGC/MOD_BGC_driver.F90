@@ -13,7 +13,7 @@
 ! !ORIGINAL:
 ! The Community Land Model version 5.0 (CLM5.0)
 !
-! !REFERENCE:
+! !REFERENCES:
 ! Lawrence, D.M., Fisher, R.A., Koven, C.D., Oleson, K.W., Swenson, S.C., Bonan, G., Collier, N., 
 ! Ghimire, B., van Kampenhout, L., Kennedy, D. and Kluzek, E., 2019. 
 ! The Community Land Model version 5: Description of new features, benchmarking,
@@ -24,8 +24,8 @@
 
 
    USE MOD_Precision
-   USE MOD_Namelist, only : DEF_USE_SASU, DEF_USE_DiagMatrix, DEF_USE_NITRIF, DEF_USE_CNSOYFIXN, DEF_USE_FIRE, DEF_USE_IRRIGATION
-   USE MOD_Const_Physical, only : tfrz, denh2o, denice
+   USE MOD_Namelist, only: DEF_USE_SASU, DEF_USE_DiagMatrix, DEF_USE_NITRIF, DEF_USE_CNSOYFIXN, DEF_USE_FIRE, DEF_USE_IRRIGATION
+   USE MOD_Const_Physical, only: tfrz, denh2o, denice
    USE MOD_Vars_PFTimeInvariants, only: pftfrac
    USE MOD_LandPFT, only: patch_pft_s, patch_pft_e
    USE MOD_BGC_Vars_1DFluxes, only: plant_ndemand, ndep_to_sminn
@@ -87,7 +87,7 @@
       CALL CNZeroFluxes(i, ps, pe, nl_soil, ndecomp_pools, ndecomp_transitions)
       CALL CNNFixation(i,idate)
       CALL CNMResp(i, ps, pe, nl_soil, npcropmin)
-      CALL decomp_rate_constants_bgc(i,nl_soil,z_soi)
+      CALL decomp_rate_constants_bgc(i, nl_soil, z_soi)
       CALL SoilBiogeochemPotential(i,nl_soil,ndecomp_pools,ndecomp_transitions)
       CALL SoilBiogeochemVerticalProfile(i,ps,pe,nl_soil,nl_soil_full,nbedrock,zmin_bedrock,z_soi,dz_soi)
       IF(DEF_USE_NITRIF)THEN
@@ -114,7 +114,7 @@
       CALL CNGResp(i, ps, pe, npcropmin)
 #ifdef CROP
       IF(DEF_USE_IRRIGATION)THEN
-         CALL CalIrrigationNeeded(i,ps,pe,idate,nl_soil,nbedrock,z_soi,dz_soi,deltim,dlon,npcropmin)
+         CALL CalIrrigationNeeded(i,idate,nl_soil,nbedrock,z_soi,zi_soi,dz_soi,deltim,dlon,npcropmin)
       ENDIF
 #endif
       ! update vegetation pools from phenology, allocation and nitrogen uptake
@@ -127,7 +127,7 @@
       CALL SoilBiogeochemLittVertTransp(i,deltim,nl_soil,nl_soil_full,ndecomp_pools,nbedrock,z_soi,zi_soi,dz_soi)
   
       ! update vegetation pools from gap mortality
-      CALL CNGapMortality(i, ps, pe, nl_soil,npcropmin)
+      CALL CNGapMortality(i, ps, pe, nl_soil, npcropmin)
       CALL CStateUpdate2(i, ps, pe, deltim, nl_soil)
       CALL NStateUpdate2(i, ps, pe, deltim, nl_soil, dz_soi)
   
@@ -151,8 +151,8 @@
       CALL CNDriverSummarizeFluxes(i,ps,pe,nl_soil,dz_soi,ndecomp_transitions,ndecomp_pools,deltim)
   
       IF( .not. skip_balance_check(i) )THEN
-         CALL CBalanceCheck(i,ps,pe,deltim,dlat,dlon)
-         CALL NBalanceCheck(i,deltim,dlat,dlon)
+         CALL CBalanceCheck(i,ps,pe,nl_soil,dz_soi,deltim,dlat,dlon)
+         CALL NBalanceCheck(i,ps,pe,deltim,dlat,dlon)
   
   
       ELSE

@@ -10,7 +10,7 @@ Help()
 
    echo '---------------------------------------------------------------------------'
    echo 'Syntax: ./create_scripts -p $SourcePath -t $STARTYR -e $ENDYR -f $HEADER'
-   echo '        -c $CONFIG [ -i ${SPINUPSCHEME} ]'
+   echo '        -c $CONFIG [ -i ${SPINUPSCHEME} ] [ -s ]'
    echo '!--------------------------------------------------------------------------'
    echo options:
    echo '  -p|--pathname The path with case name, where you want to create your scripts'
@@ -36,6 +36,8 @@ Help()
    echo 
    echo '  -i|--spinup (optional) ${SPINUPSCHEME} specify the spinup scheme we used in'
    echo '          case.submit. i.e. none, nd, or sasund'
+   echo '  -s|--singlept (optional) ${SINGLEPT} specify if a single site simulation is '
+   echo '          needed.'
    echo
    echo '  -h display command information'
 
@@ -62,6 +64,7 @@ CreateHeader()
    SCRIPTNAME=$2
    HEADER=$3
    CONFIG=$4
+   SINGLEPT=$5
 
    if [ ! -f $HEADER ];then
       echo "ERROR: HEADER file $HEADER does not exist"
@@ -71,6 +74,13 @@ CreateHeader()
    if [ -f $CONFIG ];then
       case ${SCRIPTNAME} in
       mksrf.submit)
+	 if [ "$SINGLEPT" == "YES" ];then
+	    EXEC=''
+	    EXEO=''
+	 else
+   	    EXEC=`awk '/Exe_command/ {print $2}' $CONFIG`
+	    EXEO=`awk '/Exe_opt/ {print $2}' $CONFIG`
+	 fi
          NP=`awk '/NProcesses_mksrf/ {print $2}' $CONFIG`
          NN=`awk '/NNodes_mksrf/ {print $2}' $CONFIG`
          NTPN=`awk '/NTasksPerNode_mksrf/ {print $2}' $CONFIG`
@@ -80,6 +90,8 @@ CreateHeader()
          OUTPUT='mksrf'
          ;;
       init.submit)
+	 EXEC=`awk '/Exe_command/ {print $2 $3}' $CONFIG`
+	 EXEO=`awk '/Exe_opt/ {print $2}' $CONFIG`
          NP=`awk '/NProcesses_mkini/ {print $2}' $CONFIG`
          NN=`awk '/NNodes_mkini/ {print $2}' $CONFIG`
          NTPN=`awk '/NTasksPerNode_mkini/ {print $2}' $CONFIG`
@@ -89,6 +101,8 @@ CreateHeader()
          OUTPUT='init'
          ;;
       case.submit)
+	 EXEC=`awk '/Exe_command/ {print $2 $3}' $CONFIG`
+	 EXEO=`awk '/Exe_opt/ {print $2}' $CONFIG`
          NP=`awk '/NProcesses_case/ {print $2}' $CONFIG`
          NN=`awk '/NNodes_case/ {print $2}' $CONFIG`
          NTPN=`awk '/NTasksPerNode_case/ {print $2}' $CONFIG`
@@ -102,14 +116,16 @@ CreateHeader()
          exit
          ;;
       esac     
-      echo NP after read $NP
-      echo SCRIPTNAME $SCRIPTNAME
-      echo HEADER $HEADER
-      echo CONFIG $CONFIG
+      #echo NP after read $NP
+      #echo SCRIPTNAME $SCRIPTNAME
+      #echo HEADER $HEADER
+      #echo CONFIG $CONFIG
+      #echo EXEC $EXEC
+      #echo EXEO $EXEO
       if [ $NP -gt 0 ] 2>/dev/null;then
-         echo Number of processes is assigned from $CONFIG
+#         echo Number of processes is assigned from $CONFIG
+	 echo>/dev/null
       else
-         echo herehere NProcesses $NP is not a number in $CONFIG
          case ${SCRIPTNAME} in
             mksrf.submit) NP=240;;
             init.submit)  NP=24;;
@@ -118,9 +134,10 @@ CreateHeader()
          esac
       fi
       if [ $NN -gt 0 ] 2>/dev/null;then
-         echo Number of nodes is assigned from $CONFIG
+         #echo Number of nodes is assigned from $CONFIG
+	 echo>/dev/null
       else
-         echo NNodes $NN is not a number in $CONFIG
+         #echo NNodes $NN is not a number in $CONFIG
          case ${SCRIPTNAME} in
             mksrf.submit) NN=10;;
             init.submit)  NN=1;;
@@ -129,9 +146,10 @@ CreateHeader()
          esac
       fi
       if [ $NTPN -gt 0 ] 2>/dev/null;then
-         echo Number of tasks per node is assigned from $CONFIG
+         #echo Number of tasks per node is assigned from $CONFIG
+	 echo>/dev/null
       else
-         echo NTasksPerNode $NTPN is not a number in $CONFIG
+         #echo NTasksPerNode $NTPN is not a number in $CONFIG
          case ${SCRIPTNAME} in
             mksrf.submit) NP=24;;
             init.submit)  NP=24;;
@@ -140,7 +158,7 @@ CreateHeader()
          esac
       fi
    else
-      echo Configure file $CONFIG does not exist, resolve configuration from default
+      #echo Configure file $CONFIG does not exist, resolve configuration from default
       case ${SCRIPTNAME} in
       mksrf.submit)
          NP=240
@@ -150,6 +168,8 @@ CreateHeader()
          WT=24:00:00
          QUEUE=normal
          OUTPUT='mksrf'
+	 EXEC='mpirun'
+	 EXEO='-np'
          ;;
       init.submit)
          NP=24
@@ -159,6 +179,8 @@ CreateHeader()
          WT=24:00:00
          QUEUE=normal
          OUTPUT='init'
+	 EXEC='mpirun'
+	 EXEO='-np'
          ;;
       case.submit)
          NP=120
@@ -168,6 +190,8 @@ CreateHeader()
          WT=24:00:00
          QUEUE=normal
          OUTPUT='case'
+	 EXEC='mpirun'
+	 EXEO='-np'
          ;;
       *)
          echo "Error: Unknown Unknown script name: $SCRIPTNAME in CreateScripts"
@@ -178,7 +202,11 @@ CreateHeader()
 
 
       
-echo NP before create header $NP
+#echo NP before create header $NP
+   if [ ${SINGLEPT} == "YES" ];then
+      NP=1
+      NN=1
+   fi
 
      sed "s/<CASENAME>/${CASENAME}/g" ${HEADER} |sed "s/<QUEUE>/${QUEUE}/g" \
    | sed "s/<OUTPUTFILE>/${OUTPUT}.out/g"|sed "s/<ERRORFILE>/${OUTPUT}.err/g" |sed "s/<MEMORY>/${MEM}/g" \
@@ -197,6 +225,7 @@ CreateScripts()
    HEADER=$5
    CONFIG=$6
    SPINUPSCHEME=$7
+   SINGLEPT=$8
 
    RESTENDYR=`expr $ENDYR + 1`
    ILOOP='$iloop'
@@ -209,45 +238,53 @@ CreateScripts()
    MODILOOP10='`expr $iloop % 10`'
    RESETTIME='${files} ../'${STARTYR}'-001-00000/${files/'${RESTENDYR}'-001/'${STARTYR}'-001}'
 
-   echo ${STARTYR} $SEQYR
+   #echo ${STARTYR} $SEQYR
    if [ $HEADER == none ];then
-      echo no header for mksrf.submit
+      #echo no header for mksrf.submit
       echo "#!/bin/bash">mksrf.submit
       NP=240  
    else
-      CreateHeader $CASENAME mksrf.submit $HEADER $CONFIG
+	   echo CreateHeader $CASENAME mksrf.submit $HEADER $CONFIG ${SINGLEPT}
+      CreateHeader $CASENAME mksrf.submit $HEADER $CONFIG ${SINGLEPT}
       if [ ! -z $CONFIG ];then
          NP=`awk '/NProcesses_mksrf/ {print $2}' $CONFIG`
          if [ $NP -gt 0 ] 2>/dev/null;then
-            echo number of processes for mksrf.submit '$NP=' $NP is assigned from $CONFIG
+            #echo number of processes for mksrf.submit '$NP=' $NP is assigned from $CONFIG
+	    echo>/dev/null
          else
-            echo number of processes '$NP' for mksrf.submit is not configured in $CONFIG, set to 240
+            #echo number of processes '$NP' for mksrf.submit is not configured in $CONFIG, set to 240
             NP=240
          fi
       else
-         echo $CONFIG does not exist, set number of processes '$NP' to 240
+         #echo $CONFIG does not exist, set number of processes '$NP' to 240
          NP=240
       fi
    fi
+   if [ ${SINGLEPT} == "YES" ];then
+      NP=""
+      EXEC=""
+      EXEO=""
+   fi
    cat>>mksrf.submit<<EOF
 cd ${CASEPATH}/${CASENAME}/bld/run/
-mpirun -np $NP ./mksrfdata.x ../../input_${CASENAME}.nml > ../../logmksrfdata
+${EXEC} ${EXEO} $NP ./mksrfdata.x ../../input_${CASENAME}.nml > ../../logmksrfdata
 
 EOF
    
    if [ $HEADER == none ];then
-      echo no header for init.submit
+      #echo no header for init.submit
       echo "#!/bin/bash">init.submit
       NP=24
    else
-      CreateHeader $CASENAME init.submit $HEADER $CONFIG
+      CreateHeader $CASENAME init.submit $HEADER $CONFIG ${SINGLEPT}
       NP=`awk '/NProcesses_mkini/ {print $2}' $CONFIG`
       if [ ! -z $CONFIG ];then
          NP=`awk '/NProcesses_mkini/ {print $2}' $CONFIG`
          if [ $NP -gt 0 ] 2>/dev/null;then
-            echo The number of processes for init.submit '$NP=' $NP is assigned from $CONFIG
+            echo>/dev/null
+      #      echo The number of processes for init.submit '$NP=' $NP is assigned from $CONFIG
          else
-            echo The number of processes for init.submit '$NP' is not configured in $CONFIG, set to 24
+       #     echo The number of processes for init.submit '$NP' is not configured in $CONFIG, set to 24
             NP=24
          fi
       else
@@ -255,37 +292,48 @@ EOF
          NP=24
       fi
    fi
+   if [ ${SINGLEPT} == "YES" ];then
+      NP=""
+      EXEC=""
+      EXEO=""
+   fi
    cat>>init.submit<<EOF
 cd ${CASEPATH}/${CASENAME}/bld/run/
-mpirun -np $NP ./mkinidata.x ../../input_${CASENAME}.nml > ../../logini
+${EXEC} ${EXEO} $NP ./mkinidata.x ../../input_${CASENAME}.nml > ../../logini
 
 EOF
 
    if [ $HEADER == none ];then
-      echo no header for case.submit
+     # echo no header for case.submit
       echo "#!/bin/bash">case.submit
       NP=120
    else
-      CreateHeader $CASENAME case.submit $HEADER $CONFIG
+      CreateHeader $CASENAME case.submit $HEADER $CONFIG ${SINGLEPT}
       NP=`awk '/NProcesses_case/ {print $2}' $CONFIG`
       if [ ! -z $CONFIG ];then
          NP=`awk '/NProcesses_case/ {print $2}' $CONFIG`
          if [ $NP -gt 0 ] 2>/dev/null;then
-            echo The number of processes for case.submit '$NP=' $NP is assigned from $CONFIG
+            echo>/dev/null
+      #      echo The number of processes for case.submit '$NP=' $NP is assigned from $CONFIG
          else
-            echo The number of processes for case.submit '$NP' is not configured in $CONFIG, set to 120
+       #     echo The number of processes for case.submit '$NP' is not configured in $CONFIG, set to 120
             NP=120
          fi
       else
-         echo $CONFIG does not exist, set the number of processes '$NP' to 120
+       #  echo $CONFIG does not exist, set the number of processes '$NP' to 120
          NP=120
       fi
+   fi
+   if [ ${SINGLEPT} == "YES" ];then
+      NP=""
+      EXEC=""
+      EXEO=""
    fi
    case ${SPINUPSCHEME} in
       none)
          cat>>'case.submit'<<EOF
 cd ${CASEPATH}/${CASENAME}/bld/run/
-mpirun -np $NP ./colm.x ../../input_${CASENAME}.nml > ../../log
+${EXEC} ${EXEO} $NP ./colm.x ../../input_${CASENAME}.nml > ../../log
 EOF
          ;;
       nd)
@@ -294,7 +342,7 @@ iloop=1
 while [ ${ILOOP} -le 100 ]
 do
    cd ${CASEPATH}/${CASENAME}/bld/run/
-   mpirun -np $NP ./colm.x ../../input_${CASENAME}.nml > ../../log-${ILOOP}
+   ${EXEC} ${EXEO} $NP ./colm.x ../../input_${CASENAME}.nml > ../../log-${ILOOP}
    mkdir -p ${CASEPATH}/${CASENAME}/restart/loop-${ILOOP}
    mkdir -p ${CASEPATH}/${CASENAME}/history/loop-${ILOOP}
    cd ${CASEPATH}/${CASENAME}/restart
@@ -322,9 +370,9 @@ while [ ${ILOOP} -le 130 ]
 do
    cd ${CASEPATH}/${CASENAME}/bld/run/
    if [ ${ILOOP} -le 100 ];then
-      mpirun -np 240 ./colm.x ../../input_${CASENAME}-SASU.nml > ../../log-${ILOOP}
+      ${EXEC} ${EXEO} $NP ./colm.x ../../input_${CASENAME}-SASU.nml > ../../log-${ILOOP}
    else
-      mpirun -np 240 ./colm.x ../../input_${CASENAME}.nml > ../../log-${ILOOP}
+      ${EXEC} ${EXEO} $NP ./colm.x ../../input_${CASENAME}.nml > ../../log-${ILOOP}
    fi
    mkdir -p ${CASEPATH}/${CASENAME}/restart/loop-${ILOOP}
    mkdir -p ${CASEPATH}/${CASENAME}/history/loop-${ILOOP}
@@ -354,7 +402,7 @@ esac
 }
 
 
-while getopts ":hi:p:t:e:f:c:" options ;
+while getopts ":hsi:p:t:e:f:c:" options ;
 do
     case $options in
       p) CASENAMEPATH="$OPTARG" ;;
@@ -363,10 +411,15 @@ do
       f) HEADER="$OPTARG"       ;;
       c) CONFIG="$OPTARG"       ;;
       i) SPINUPSCHEME="$OPTARG" ;;
+      s) SINGLEPT="YES"         ;;
       h) Help; exit;;
       *) echo "invalid option: $options";exit ;;
     esac
 done
+
+if [ -z "$SINGLEPT" ];then
+   SINGLEPT="NO"
+fi
 
 if [ -z "$SPINUPSCHEME" ];then
    SPINUPSCHEME=none
@@ -431,4 +484,4 @@ mkdir -p $CASEPATH/$CASENAME
 cd $CASEPATH/$CASENAME
 echo CONFIG before createscript $CONFIG
 echo HEADER before createscript $HEADER
-CreateScripts $CASEPATH $CASENAME $STARTYR $ENDYR $HEADER $CONFIG $SPINUPSCHEME
+CreateScripts $CASEPATH $CASENAME $STARTYR $ENDYR $HEADER $CONFIG $SPINUPSCHEME $SINGLEPT

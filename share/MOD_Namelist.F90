@@ -3,12 +3,12 @@
 MODULE MOD_Namelist
 
 !-----------------------------------------------------------------------
-! DESCRIPTION:
+! !DESCRIPTION:
 !
-!    Variables in namelist files and subrroutines to read namelist files.
+!    Variables in namelist files and subroutines to read namelist files.
 !
-! Initial Authors: Shupeng Zhang, Zhongwang Wei, Xingjie Lu, Nan Wei,
-!                  Hua Yuan, Wenzong Dong et al., May 2023
+!  Initial Authors: Shupeng Zhang, Zhongwang Wei, Xingjie Lu, Nan Wei,
+!                   Hua Yuan, Wenzong Dong et al., May 2023
 !-----------------------------------------------------------------------
 
    USE MOD_Precision, only: r8
@@ -20,7 +20,6 @@ MODULE MOD_Namelist
 ! ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
    character(len=256) :: DEF_CASE_NAME = 'CASENAME'
-
 
 ! ~~~~~~~~~~~~~~~~~~~~~~~~~~
 ! ----- Part 1: domain -----
@@ -52,6 +51,7 @@ MODULE MOD_Namelist
    ! A group includes one "IO" process and several "worker" processes.
    ! Its size determines number of IOs in a job.
    integer  :: DEF_PIO_groupsize = 12
+   logical  :: DEF_nIO_eq_nBlock = .false.
 
 ! ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 ! ----- Part 3: For Single Point -----
@@ -59,8 +59,8 @@ MODULE MOD_Namelist
 
    character(len=256) :: SITE_fsitedata = 'null'
 
-   real(r8) :: SITE_lon_location = 113.5897
-   real(r8) :: SITE_lat_location = 22.3507
+   real(r8) :: SITE_lon_location = -1.e36_r8
+   real(r8) :: SITE_lat_location = -1.e36_r8
 
    integer  :: SITE_landtype             = -1
 
@@ -74,9 +74,11 @@ MODULE MOD_Namelist
    logical  :: USE_SITE_soilparameters   = .true.
    logical  :: USE_SITE_dbedrock         = .true.
    logical  :: USE_SITE_topography       = .true.
-   logical  :: USE_SITE_urban_paras      = .true.
-   logical  :: USE_SITE_thermal_paras    = .false.
-   logical  :: USE_SITE_urban_LAI        = .false.
+   logical  :: USE_SITE_urban_geometry   = .true.
+   logical  :: USE_SITE_urban_ecology    = .true.
+   logical  :: USE_SITE_urban_radiation  = .true.
+   logical  :: USE_SITE_urban_thermal    = .false.
+   logical  :: USE_SITE_urban_human      = .true.
    logical  :: USE_SITE_HistWriteBack    = .true.
    logical  :: USE_SITE_ForcingReadAhead = .true.
 
@@ -116,8 +118,6 @@ MODULE MOD_Namelist
    character(len=256) :: DEF_dir_restart  = 'path/to/restart'
    character(len=256) :: DEF_dir_history  = 'path/to/history'
 
-   character(len=256) :: DEF_DA_obsdir    = 'null'
-
 ! ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 ! ----- Part 6: make surface data -----
 ! ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -149,7 +149,8 @@ MODULE MOD_Namelist
    logical :: DEF_USE_PFT  = .false.
    logical :: DEF_USE_PC   = .false.
    logical :: DEF_SOLO_PFT = .false.
-   logical :: DEF_FAST_PC  = .false.
+   logical :: DEF_FAST_PC  = .true.
+   logical :: DEF_PC_CROP_SPLIT = .true.
    character(len=256) :: DEF_SUBGRID_SCHEME = 'LCT'
 
    logical :: DEF_LANDONLY                  = .true.
@@ -223,6 +224,7 @@ MODULE MOD_Namelist
    ! 1: NCAR Urban Classification, 3 urban type with Tall Building, High Density and Medium Density
    ! 2: LCZ Classification, 10 urban type with LCZ 1-10
    integer :: DEF_URBAN_type_scheme = 1
+   integer :: DEF_URBAN_geom_data   = 1
    logical :: DEF_URBAN_ONLY        = .false.
    logical :: DEF_URBAN_RUN         = .false.
    logical :: DEF_URBAN_BEM         = .true.
@@ -232,7 +234,7 @@ MODULE MOD_Namelist
    logical :: DEF_USE_CANYON_HWR    = .true.
 
 ! ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-! ----- Part 11: parameteration schemes -----
+! ----- Part 11: parameterization schemes -----
 ! ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
    integer :: DEF_Interception_scheme = 1  !1:CoLM；2:CLM4.5; 3:CLM5; 4:Noah-MP; 5:MATSIRO; 6:VIC; 7:JULES
@@ -260,22 +262,26 @@ MODULE MOD_Namelist
    integer :: DEF_RSS_SCHEME = 1
 
    ! ----- Options for runoff parameterization schemes -----
-   ! 0: scheme from SIMTOP model, also used in CoLM2014
+   ! 0: scheme from TOPMODEL, also used in CoLM2014
    ! 1: scheme from VIC model
    ! 2: scheme from XinAnJiang model, also used in ECMWF model
    ! 3: scheme from Simple VIC, also used in NoahMP 5.0
 
    integer :: DEF_Runoff_SCHEME = 3
    character(len=256) :: DEF_file_VIC_para = 'null'
+   character(len=256) :: DEF_file_VIC_OPT = 'null'
+   logical :: DEF_VIC_OPT = .false.
 
-   ! ----- Treat exposed soil and snow surface separatly -----
+   integer :: DEF_TOPMOD_method = 0
+
+   ! ----- Treat exposed soil and snow surface separately -----
    ! including solar absorption, sensible/latent heat, ground temperature,
-   ! ground heat flux and groud evp/dew/subl/fros. Corresponding vars are
+   ! ground heat flux and ground evp/dew/subl/fros. Corresponding vars are
    ! named as ***_soil, ***_snow.
    logical :: DEF_SPLIT_SOILSNOW = .false.
 
    ! ----- Account for vegetation snow process -----
-   ! NOTE: This option will be activated in the new release, accompained by
+   ! NOTE: This option will be activated in the new release, accompanied by
    !       a new set of canopy structure data, include the snow-free LAI.
    logical :: DEF_VEG_SNOW = .false.
 
@@ -284,13 +290,24 @@ MODULE MOD_Namelist
    logical :: DEF_USE_BEDROCK               = .false.
 
    ! ----- Ozone stress -----
-   logical :: DEF_USE_OZONESTRESS = .false.
-   logical :: DEF_USE_OZONEDATA   = .false.
+   logical :: DEF_USE_OZONESTRESS = .true.
+   logical :: DEF_USE_OZONEDATA   = .true.
 
    ! ----- SNICAR model related -----
    logical :: DEF_USE_SNICAR                  = .false.
    character(len=256) :: DEF_file_snowoptics  = 'null'
    character(len=256) :: DEF_file_snowaging   = 'null'
+
+   ! ----- Hyperspectral related -----
+   logical :: DEF_HighResSoil                      = .true.
+   logical :: DEF_HighResVeg                       = .true.
+   logical :: DEF_PROSPECT                         = .false.
+
+   CHARACTER(LEN=256) :: DEF_HighResUrban_albedo   = 'null'
+   ! logical :: DEF_Satellite_Params                 = .false.
+   ! character(len=256) :: DEF_file_soiloptics       = 'null'
+   ! character(len=256) :: DEF_file_satellite_params = 'null'
+   ! character(len=256) :: DEF_sla_varname           = 'null'
 
    ! .true. read aerosol deposition data from file or .false. set in the code
    logical :: DEF_Aerosol_Readin              = .true.
@@ -308,50 +325,46 @@ MODULE MOD_Namelist
    character(len=256) :: DEF_CaMa_Namelist = 'null'
 
    ! ----- lateral flow related -----
-   logical :: DEF_USE_EstimatedRiverDepth     = .true.
    character(len=256) :: DEF_ElementNeighbour_file = 'null'
+   character(len=256) :: DEF_UnitCatchment_file    = 'null'
+   character(len=256) :: DEF_ReservoirPara_file    = 'null'
 
+   logical  :: DEF_USE_EstimatedRiverDepth  = .true.
+   integer  :: DEF_Reservoir_Method         = 0
+   real(r8) :: DEF_GRIDBASED_ROUTING_MAX_DT = 3600.
+
+   ! ----- others -----
    character(len=5)   :: DEF_precip_phase_discrimination_scheme = 'II'
-   character(len=256) :: DEF_SSP='585' ! Co2 path for CMIP6 future scenario.
 
+   character(len=256) :: DEF_SSP        = '585'   ! Co2 path for CMIP6 future scenario.
 
-   !use irrigation
-   logical            :: DEF_USE_IRRIGATION      = .false.
+   logical :: DEF_USE_IRRIGATION        = .false. ! use irrigation
+   integer :: DEF_IRRIGATION_ALLOCATION = 1       ! irrigation allocated method
 
-   !Plant Hydraulics
-   logical            :: DEF_USE_PLANTHYDRAULICS = .true.
+   logical :: DEF_USE_NOSTRESSNITROGEN  = .false. ! photosynthesis stress option
+   integer :: DEF_RSTFAC                = 1       ! root resistance factors option
+   logical :: DEF_USE_PLANTHYDRAULICS   = .true.  ! Plant Hydraulics
+   logical :: DEF_USE_MEDLYNST          = .false. ! Medlyn stomata model
+   logical :: DEF_USE_WUEST             = .true.  ! WUE stomata model
 
-   !Medlyn stomata model
-   logical            :: DEF_USE_MEDLYNST        = .false.
+   logical :: DEF_USE_SASU              = .false. ! Semi-Analytic-Spin-Up
+   logical :: DEF_USE_DiagMatrix        = .false.
+   logical :: DEF_USE_PN                = .false. ! Punctuated nitrogen addition Spin up
 
-   !WUE stomata model
-   logical            :: DEF_USE_WUEST           = .true.
+   logical :: DEF_USE_FERT              = .true.  ! Fertilisation on crop
+   integer :: DEF_FERT_SOURCE           = 1       ! Fertilisation data source
+   logical :: DEF_USE_NITRIF            = .true.  ! Nitrification and denitrification switch
+   logical :: DEF_USE_CNSOYFIXN         = .true.  ! Soy nitrogen fixation
 
-   !Semi-Analytic-Spin-Up
-   logical            :: DEF_USE_SASU            = .false.
+   logical :: DEF_USE_FIRE              = .false. ! Fire MODULE
 
-   logical            :: DEF_USE_DiagMatrix      = .false.
+   logical :: DEF_USE_Dynamic_Lake      = .false. ! Dynamic Lake model
 
-   !Punctuated nitrogen addition Spin up
-   logical            :: DEF_USE_PN              = .false.
+   logical :: DEF_USE_Dynamic_Wetland   = .false. ! Dynamic wetland model
 
-   !Fertilisation on crop
-   logical            :: DEF_USE_FERT            = .true.
+   logical :: DEF_CheckEquilibrium      = .false.
 
-   !Nitrification and denitrification switch
-   logical            :: DEF_USE_NITRIF          = .true.
-
-   !Soy nitrogen fixation
-   logical            :: DEF_USE_CNSOYFIXN       = .true.
-
-   !Fire MODULE
-   logical            :: DEF_USE_FIRE            = .false.
-
-   !Dynamic Lake model
-   logical            :: DEF_USE_Dynamic_Lake    = .false.
-
-   !
-   logical            :: DEF_CheckEquilibrium    = .false.
+   logical :: DEF_Output_2mWMO          = .false. ! 2m WMO temperature
 
 ! ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 ! ----- Part 12: forcing -----
@@ -407,8 +420,8 @@ MODULE MOD_Namelist
          'TBOT    ','QBOT    ','PSRF    ','PRECTmms', &
          'NULL    ','WIND    ','FSDS    ','FLDS    ' /)
       character(len=256) :: timelog(8)         = (/ &
-         'instant ','instant ','instant ','foreward', &
-         'NULL    ','instant ','forward ','foreward' /)
+         'instant ','instant ','instant ','forward ', &
+         'NULL    ','instant ','forward ','forward ' /)
       character(len=256) :: tintalgo(8)        = (/ &
          'linear ','linear ','linear ','nearest', &
          'NULL   ','linear ','coszen ','linear ' /)
@@ -428,12 +441,36 @@ MODULE MOD_Namelist
    character(len=20) :: DEF_Forcing_Interp_Method = 'arealweight' ! 'arealweight' (default) or 'bilinear'
 
    logical           :: DEF_USE_Forcing_Downscaling        = .false.
+   logical           :: DEF_USE_Forcing_Downscaling_Simple = .false.
    character(len=256):: DEF_DS_HiresTopographyDataDir      = 'null'
    character(len=5)  :: DEF_DS_precipitation_adjust_scheme = 'I'
    character(len=5)  :: DEF_DS_longwave_adjust_scheme      = 'II'
 
+   logical           :: DEF_USE_ClimForcing_for_Spinup     = .false.
+
+! ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+! ----- Part 13: data assimilation -----
+! ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+   character(len=256) :: DEF_DA_obsdir     = 'null'
+   logical            :: DEF_DA_TWS        = .false.
+   logical            :: DEF_DA_TWS_GRACE  = .false.
+   logical            :: DEF_DA_SM         = .false.
+   integer            :: DEF_DA_ENS_NUM    = 20
+   logical            :: DEF_DA_ENS_SM     = .false.
+   logical            :: DEF_DA_SM_SMAP    = .false.
+   logical            :: DEF_DA_SM_FY      = .false.
+   logical            :: DEF_DA_SM_SYNOP   = .false.
+   integer            :: DEF_DA_RTM_diel   = 0
+   integer            :: DEF_DA_RTM_rough  = 0
+
+! ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+! ----- Part 14: parameter optimization -----
+! ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+   logical :: DEF_Optimize_Baseflow = .false.
+
 ! ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-! ----- Part 13: history and restart -----
+! ----- Part 15: history and restart -----
 ! ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
    logical  :: DEF_HISTORY_IN_VECTOR            = .false.
@@ -496,6 +533,7 @@ MODULE MOD_Namelist
       logical :: rnof                             = .true.
       logical :: xwsur                            = .true.
       logical :: xwsub                            = .true.
+      logical :: fldarea                          = .true.
       logical :: qintr                            = .true.
       logical :: qinfl                            = .true.
       logical :: qdrip                            = .true.
@@ -503,6 +541,7 @@ MODULE MOD_Namelist
       logical :: wat_inst                         = .true.
       logical :: wetwat                           = .true.
       logical :: wetwat_inst                      = .true.
+      logical :: wetzwt                           = .true.
       logical :: assim                            = .true.
       logical :: respc                            = .true.
       logical :: qcharge                          = .true.
@@ -512,6 +551,7 @@ MODULE MOD_Namelist
       logical :: scv                              = .true.
       logical :: snowdp                           = .true.
       logical :: fsno                             = .true.
+      logical :: frcsat                           = .true.
       logical :: sigf                             = .true.
       logical :: green                            = .true.
       logical :: lai                              = .true.
@@ -519,11 +559,15 @@ MODULE MOD_Namelist
       logical :: laisha                           = .true.
       logical :: sai                              = .true.
       logical :: alb                              = .true.
+      logical :: alb_hires                        = .true.
+      logical :: reflectance_out                  = .true.
+      logical :: transmittance_out                = .true.
       logical :: emis                             = .true.
       logical :: z0m                              = .true.
       logical :: trad                             = .true.
       logical :: rss                              = .true.
       logical :: tref                             = .true.
+      logical :: t2m_wmo                          = .true.
       logical :: qref                             = .true.
 
       logical :: fsen_roof                        = .true.
@@ -551,6 +595,9 @@ MODULE MOD_Namelist
       logical :: assimsha                         = .true.
       logical :: etrsun                           = .true.
       logical :: etrsha                           = .true.
+
+      logical :: o3uptakesun                      = .true.
+      logical :: o3uptakesha                      = .true.
 
       logical :: leafc                            = .true.
       logical :: leafc_storage                    = .true.
@@ -603,6 +650,17 @@ MODULE MOD_Namelist
       logical :: hr                               = .true.
       logical :: fpg                              = .true.
       logical :: fpi                              = .true.
+      logical :: totvegc                          = .true.
+      logical :: totlitc                          = .true.
+      logical :: totcwdc                          = .true.
+      logical :: totsomc                          = .true.
+      logical :: totcolc                          = .true.
+      logical :: totvegn                          = .true.
+      logical :: totlitn                          = .true.
+      logical :: totcwdn                          = .true.
+      logical :: totsomn                          = .true.
+      logical :: totcoln                          = .true.
+      logical :: totsoiln_vr                      = .true.
       logical :: gpp_enftemp                      = .false. !1
       logical :: gpp_enfboreal                    = .false. !2
       logical :: gpp_dnfboreal                    = .false. !3
@@ -631,6 +689,48 @@ MODULE MOD_Namelist
       logical :: leafc_c3arcgrass                 = .false. !12
       logical :: leafc_c3grass                    = .false. !13
       logical :: leafc_c4grass                    = .false. !14
+      logical :: lai_enftemp                      = .false. !1
+      logical :: lai_enfboreal                    = .false. !2
+      logical :: lai_dnfboreal                    = .false. !3
+      logical :: lai_ebftrop                      = .false. !4
+      logical :: lai_ebftemp                      = .false. !5
+      logical :: lai_dbftrop                      = .false. !6
+      logical :: lai_dbftemp                      = .false. !7
+      logical :: lai_dbfboreal                    = .false. !8
+      logical :: lai_ebstemp                      = .false. !9
+      logical :: lai_dbstemp                      = .false. !10
+      logical :: lai_dbsboreal                    = .false. !11
+      logical :: lai_c3arcgrass                   = .false. !12
+      logical :: lai_c3grass                      = .false. !13
+      logical :: lai_c4grass                      = .false. !14
+      logical :: npp_enftemp                      = .false. !1
+      logical :: npp_enfboreal                    = .false. !2
+      logical :: npp_dnfboreal                    = .false. !3
+      logical :: npp_ebftrop                      = .false. !4
+      logical :: npp_ebftemp                      = .false. !5
+      logical :: npp_dbftrop                      = .false. !6
+      logical :: npp_dbftemp                      = .false. !7
+      logical :: npp_dbfboreal                    = .false. !8
+      logical :: npp_ebstemp                      = .false. !9
+      logical :: npp_dbstemp                      = .false. !10
+      logical :: npp_dbsboreal                    = .false. !11
+      logical :: npp_c3arcgrass                   = .false. !12
+      logical :: npp_c3grass                      = .false. !13
+      logical :: npp_c4grass                      = .false. !14
+      logical :: npptoleafc_enftemp               = .false. !1
+      logical :: npptoleafc_enfboreal             = .false. !2
+      logical :: npptoleafc_dnfboreal             = .false. !3
+      logical :: npptoleafc_ebftrop               = .false. !4
+      logical :: npptoleafc_ebftemp               = .false. !5
+      logical :: npptoleafc_dbftrop               = .false. !6
+      logical :: npptoleafc_dbftemp               = .false. !7
+      logical :: npptoleafc_dbfboreal             = .false. !8
+      logical :: npptoleafc_ebstemp               = .false. !9
+      logical :: npptoleafc_dbstemp               = .false. !10
+      logical :: npptoleafc_dbsboreal             = .false. !11
+      logical :: npptoleafc_c3arcgrass            = .false. !12
+      logical :: npptoleafc_c3grass               = .false. !13
+      logical :: npptoleafc_c4grass               = .false. !14
 
       logical :: cphase                           = .true.
       logical :: gddmaturity                      = .true.
@@ -684,14 +784,15 @@ MODULE MOD_Namelist
       logical :: fert_to_sminn                    = .true.
 
       logical :: huiswheat                        = .true.
-      logical :: pdcorn                           = .true.
-      logical :: pdswheat                         = .true.
-      logical :: pdwwheat                         = .true.
-      logical :: pdsoybean                        = .true.
-      logical :: pdcotton                         = .true.
-      logical :: pdrice1                          = .true.
-      logical :: pdrice2                          = .true.
-      logical :: pdsugarcane                      = .true.
+      logical :: pdcorn                           = .false.
+      logical :: pdswheat                         = .false.
+      logical :: pdwwheat                         = .false.
+      logical :: pdsoybean                        = .false.
+      logical :: pdcotton                         = .false.
+      logical :: pdrice1                          = .false.
+      logical :: pdrice2                          = .false.
+      logical :: pdsugarcane                      = .false.
+      logical :: manunitro                        = .false.
       logical :: fertnitro_corn                   = .true.
       logical :: fertnitro_swheat                 = .true.
       logical :: fertnitro_wwheat                 = .true.
@@ -709,19 +810,23 @@ MODULE MOD_Namelist
       logical :: irrig_method_rice2               = .true.
       logical :: irrig_method_sugarcane           = .true.
 
-      logical :: irrig_rate                       = .true.
-      logical :: deficit_irrig                    = .true.
       logical :: sum_irrig                        = .true.
+      logical :: sum_deficit_irrig                = .true.
       logical :: sum_irrig_count                  = .true.
+      logical :: waterstorage                     = .true.
+      logical :: groundwater_demand               = .true.
+      logical :: groundwater_supply               = .true.
+      logical :: reservoirriver_demand            = .true.
+      logical :: reservoirriver_supply            = .true.
 
       logical :: ndep_to_sminn                    = .true.
-      logical :: CONC_O2_UNSAT                    = .true.
-      logical :: O2_DECOMP_DEPTH_UNSAT            = .true.
-      logical :: abm                              = .true.
-      logical :: gdp                              = .true.
-      logical :: peatf                            = .true.
-      logical :: hdm                              = .true.
-      logical :: lnfm                             = .true.
+      logical :: CONC_O2_UNSAT                    = .false.
+      logical :: O2_DECOMP_DEPTH_UNSAT            = .false.
+      logical :: abm                              = .false.
+      logical :: gdp                              = .false.
+      logical :: peatf                            = .false.
+      logical :: hdm                              = .false.
+      logical :: lnfm                             = .false.
 
       logical :: leafcCap                         = .false.
       logical :: leafc_storageCap                 = .false.
@@ -767,6 +872,8 @@ MODULE MOD_Namelist
       logical :: wice_soisno                      = .true.
 
       logical :: h2osoi                           = .true.
+      logical :: qlayer                           = .true.
+      logical :: lake_deficit                     = .true.
       logical :: rstfacsun                        = .true.
       logical :: rstfacsha                        = .true.
       logical :: gssun                            = .true.
@@ -785,6 +892,23 @@ MODULE MOD_Namelist
       logical :: dz_lake                          = .true.
       logical :: t_lake                           = .true.
       logical :: lake_icefrac                     = .true.
+
+      logical :: DA_wliq_h2osoi_5cm               = .true.
+      logical :: DA_wliq_h2osoi_5cm_a             = .true.
+      logical :: DA_t_soisno_5cm                  = .true.
+      logical :: DA_t_soisno_5cm_a                = .true.
+      logical :: DA_wliq_soisno_ens               = .true.
+      logical :: DA_t_soisno_ens                  = .true.
+      logical :: DA_wliq_soisno_5cm_ens_std       = .true.
+      logical :: DA_t_soisno_5cm_ens_std          = .true.
+      logical :: DA_t_brt_smap                    = .true.
+      logical :: DA_t_brt_smap_a                  = .true.
+      logical :: DA_t_brt_smap_ens                = .true.
+      logical :: DA_t_brt_smap_ens_std            = .true.
+      logical :: DA_t_brt_fy3d                    = .true.
+      logical :: DA_t_brt_fy3d_a                  = .true.
+      logical :: DA_t_brt_fy3d_ens                = .true.
+      logical :: DA_t_brt_fy3d_ens_std            = .true.
 
       logical :: litr1c_vr                        = .true.
       logical :: litr2c_vr                        = .true.
@@ -849,13 +973,23 @@ MODULE MOD_Namelist
       logical :: srndln                           = .true.
       logical :: srniln                           = .true.
 
+      logical :: sol_dir_ln_hires                 = .true.
+      logical :: sol_dif_ln_hires                 = .true.
+      logical :: sr_dir_ln_hires                  = .true.
+      logical :: sr_dif_ln_hires                  = .true.
+
       logical :: xsubs_bsn                        = .true.
       logical :: xsubs_hru                        = .true.
       logical :: riv_height                       = .true.
       logical :: riv_veloct                       = .true.
       logical :: discharge                        = .true.
+      logical :: floodarea                        = .true.
+      logical :: floodfrc                         = .true.
       logical :: wdsrf_hru                        = .true.
       logical :: veloc_hru                        = .true.
+      logical :: volresv                          = .true.
+      logical :: qresv_in                         = .true.
+      logical :: qresv_out                        = .true.
 
       logical :: sensors                          = .true.
 
@@ -897,15 +1031,18 @@ CONTAINS
       USE_SITE_topography,                    &
       USE_SITE_HistWriteBack,                 &
       USE_SITE_ForcingReadAhead,              &
-      USE_SITE_urban_paras,                   &
-      USE_SITE_thermal_paras,                 &
-      USE_SITE_urban_LAI,                     &
+      USE_SITE_urban_geometry,                &
+      USE_SITE_urban_ecology,                 &
+      USE_SITE_urban_radiation,               &
+      USE_SITE_urban_thermal,                 &
+      USE_SITE_urban_human,                   &
 
       DEF_BlockInfoFile,                      &
       DEF_AverageElementSize,                 &
       DEF_nx_blocks,                          &
       DEF_ny_blocks,                          &
       DEF_PIO_groupsize,                      &
+      DEF_nIO_eq_nBlock,                      &
       DEF_simulation_time,                    &
       DEF_dir_rawdata,                        &
       DEF_dir_runtime,                        &
@@ -920,6 +1057,7 @@ CONTAINS
       DEF_USE_PFT,                            &
       DEF_USE_PC,                             &
       DEF_FAST_PC,                            &
+      DEF_PC_CROP_SPLIT,                      &
       DEF_SOLO_PFT,                           &
       DEF_SUBGRID_SCHEME,                     &
 
@@ -932,12 +1070,15 @@ CONTAINS
       DEF_LAI_END_YEAR,                       &
       DEF_LAI_CHANGE_YEARLY,                  &
       DEF_USE_LAIFEEDBACK,                    & !add by Xingjie Lu, use for updating LAI with leaf carbon
-      DEF_USE_IRRIGATION,                     & !use irrigation
-
+      DEF_USE_IRRIGATION,                     & !add by Hongbin Liang @ sysu
+      DEF_IRRIGATION_ALLOCATION,              & !add by Hongbin Liang @ sysu
+      DEF_USE_NOSTRESSNITROGEN,               & !add by Hongbin Liang @ sysu
+      DEF_RSTFAC,                             & !add by Hongbin Liang @ sysu
       DEF_LC_YEAR,                            &
       DEF_LULCC_SCHEME,                       &
 
       DEF_URBAN_type_scheme,                  &
+      DEF_URBAN_geom_data,                    &
       DEF_URBAN_ONLY,                         &
       DEF_URBAN_RUN,                          & !add by hua yuan, open urban model or not
       DEF_URBAN_BEM,                          & !add by hua yuan, open urban BEM model or not
@@ -952,9 +1093,12 @@ CONTAINS
       DEF_SOIL_REFL_SCHEME,                   &
       DEF_RSS_SCHEME,                         &
       DEF_Runoff_SCHEME,                      &
+      DEF_TOPMOD_method,                      &
       DEF_SPLIT_SOILSNOW,                     &
       DEF_VEG_SNOW,                           &
       DEF_file_VIC_para,                      &
+      DEF_file_VIC_OPT,                       &
+      DEF_VIC_OPT,                            & !add by Qijia Guo @ sysu
 
       DEF_dir_existing_srfdata,               &
       USE_srfdata_from_larger_region,         &
@@ -970,12 +1114,16 @@ CONTAINS
       DEF_USE_DiagMatrix,                     & !add by Xingjie Lu @ sysu 2023/06/27
       DEF_USE_PN,                             & !add by Xingjie Lu @ sysu 2023/06/27
       DEF_USE_FERT,                           & !add by Xingjie Lu @ sysu 2023/06/27
+      DEF_FERT_SOURCE,                        & !add by Hongbin Liang @ sysu
       DEF_USE_NITRIF,                         & !add by Xingjie Lu @ sysu 2023/06/27
       DEF_USE_CNSOYFIXN,                      & !add by Xingjie Lu @ sysu 2023/06/27
       DEF_USE_FIRE,                           & !add by Xingjie Lu @ sysu 2023/06/27
 
       DEF_USE_Dynamic_Lake,                   & !add by Shupeng Zhang @ sysu 2024/09/12
+      DEF_USE_Dynamic_Wetland,                & !add by Shupeng Zhang @ sysu 2026/01/09
+
       DEF_CheckEquilibrium,                   & !add by Shupeng Zhang @ sysu 2024/11/26
+      DEF_Output_2mWMO,                       &
 
       DEF_LANDONLY,                           &
       DEF_USE_DOMINANT_PATCHTYPE,             &
@@ -987,11 +1135,22 @@ CONTAINS
       DEF_Aerosol_Readin,                     &
       DEF_Aerosol_Clim,                       &
       DEF_USE_EstimatedRiverDepth,            &
+      DEF_Reservoir_Method,                   &
+      DEF_GRIDBASED_ROUTING_MAX_DT,           &
 
       DEF_precip_phase_discrimination_scheme, &
 
       DEF_USE_SoilInit,                       &
       DEF_file_SoilInit,                      &
+
+      DEF_HighResSoil,                        &
+      DEF_HighResVeg,                         &
+      DEF_PROSPECT,                           &
+      DEF_HighResUrban_albedo,                &
+      ! DEF_Satellite_Params,                   &
+      ! DEF_file_soiloptics,                    &
+      ! DEF_file_satellite_params,              &
+      ! DEF_sla_varname,                        &
 
       DEF_USE_SnowInit,                       &
       DEF_file_SnowInit,                      &
@@ -1008,17 +1167,33 @@ CONTAINS
       DEF_CaMa_Namelist,                      &
 
       DEF_ElementNeighbour_file,              &
+      DEF_UnitCatchment_file,                 &
+      DEF_ReservoirPara_file,                 &
 
       DEF_DA_obsdir,                          &
+      DEF_DA_TWS,                             &
+      DEF_DA_TWS_GRACE,                       &
+      DEF_DA_SM,                              &
+      DEF_DA_ENS_NUM,                         &
+      DEF_DA_ENS_SM,                          &
+      DEF_DA_SM_SMAP,                         &
+      DEF_DA_SM_FY,                           &
+      DEF_DA_SM_SYNOP,                        &
+      DEF_DA_RTM_diel,                        &
+      DEF_DA_RTM_rough,                       &
+
+      DEF_Optimize_Baseflow,                  &
 
       DEF_forcing_namelist,                   &
 
       DEF_Forcing_Interp_Method,              &
 
       DEF_USE_Forcing_Downscaling,            &
-      DEF_DS_HiresTopographyDataDir,          & 
+      DEF_USE_Forcing_Downscaling_Simple,     &
+      DEF_DS_HiresTopographyDataDir,          &
       DEF_DS_precipitation_adjust_scheme,     &
       DEF_DS_longwave_adjust_scheme,          &
+      DEF_USE_ClimForcing_for_Spinup,         &
 
       DEF_HISTORY_IN_VECTOR,                  &
       DEF_HIST_lon_res,                       &
@@ -1053,9 +1228,10 @@ CONTAINS
             CALL CoLM_Stop (' ***** ERROR: Problem reading namelist: '// trim(DEF_forcing_namelist))
          ENDIF
          close(10)
-#ifdef SinglePoint
-         DEF_forcing%has_missing_value = .false.
-#endif
+
+         IF (trim(DEF_forcing%dataset) == 'POINT') THEN
+            DEF_forcing%has_missing_value = .false.
+         ENDIF
 
          DEF_dir_landdata = trim(DEF_dir_output) // '/' // trim(adjustl(DEF_CASE_NAME)) // '/landdata'
          DEF_dir_restart  = trim(DEF_dir_output) // '/' // trim(adjustl(DEF_CASE_NAME)) // '/restart'
@@ -1072,6 +1248,11 @@ CONTAINS
          DEF_HIST_mode = 'one'
 #endif
 
+         IF (DEF_simulation_time%timestep > 3600.) THEN
+            write(*,*) '                  *****                  '
+            write(*,*) 'Warning: timestep should be less than or equal to 3600 seconds.'
+            CALL CoLM_Stop ()
+         ENDIF
 
 ! ===============================================================
 ! ----- Macros&Namelist conflicts and dependency management -----
@@ -1091,7 +1272,19 @@ CONTAINS
          write(*,*) 'when defined CatchLateralFlow. '
          DEF_USE_VariablySaturatedFlow = .true.
 #endif
+#ifdef SinglePoint
+         IF (DEF_Runoff_SCHEME == 0) THEN
+            write(*,*) 'Note: DEF_TOPMOD_method is set to 0 in SinglePoint.'
+            DEF_TOPMOD_method = 0
+         ENDIF
+#endif
 
+         IF (DEF_Runoff_SCHEME == 1) THEN
+            DEF_file_VIC_para = trim(DEF_dir_runtime)//'/vic/vic_para.txt'
+            IF (DEF_VIC_OPT) THEN
+               DEF_file_VIC_OPT = trim(DEF_dir_runtime)//'vic/vic_para.nc'
+            ENDIF
+         ENDIF
 
 ! ----- subgrid type related ------ Macros&Namelist conflicts and dependency management
 
@@ -1101,10 +1294,11 @@ CONTAINS
          DEF_USE_PC   = .false.
          DEF_FAST_PC  = .false.
          DEF_SOLO_PFT = .false.
-
+#ifdef vanGenuchten_Mualem_SOIL_MODEL
          write(*,*) '                  *****                  '
-         write(*,*) 'Note: Soil resistance is automaticlly turned off for USGS|IGBP scheme.'
+         write(*,*) 'Note: Soil resistance is automaticlly turned off for VG soil + USGS|IGBP scheme.'
          DEF_RSS_SCHEME = 0
+#endif
 #endif
 
 #ifdef LULC_IGBP_PFT
@@ -1201,6 +1395,12 @@ CONTAINS
          ENDIF
 #endif
 
+         IF(.not.(DEF_FERT_SOURCE == 1 .or. DEF_FERT_SOURCE == 2))THEN
+            write(*,*) '                  *****                  '
+            write(*,'(A,I0,A)') 'ERROR: DEF_FERT_SOURCE is ',DEF_FERT_SOURCE,' , should only = 1 or 2'
+            CALL CoLM_stop ()
+         ENDIF
+
          IF(.not. DEF_USE_OZONESTRESS)THEN
             IF(DEF_USE_OZONEDATA)THEN
                DEF_USE_OZONEDATA = .false.
@@ -1240,10 +1440,15 @@ CONTAINS
 #ifdef URBAN_MODEL
          DEF_URBAN_RUN = .true.
 
-         IF (DEF_USE_SNICAR) THEN
-            write(*,*) '                  *****                  '
-            write(*,*) 'Note: SNICAR is not applied for URBAN model, but for other land covers. '
-         ENDIF
+         write(*,*) '                  *****                  '
+         write(*,*) 'When URBAN model is opened, WUEST/SUPERCOOL_WATER/PLANTHYDRAULICS/OZONESTRESS/SOILSNOW'
+         write(*,*) 'will be set to false automatically for simplicity.'
+         DEF_USE_WUEST           = .false.
+         DEF_USE_SUPERCOOL_WATER = .false.
+         DEF_USE_PLANTHYDRAULICS = .false.
+         DEF_USE_OZONESTRESS     = .false.
+         DEF_USE_OZONEDATA       = .false.
+         DEF_SPLIT_SOILSNOW      = .false.
 #else
          IF (DEF_URBAN_RUN) THEN
             write(*,*) '                  *****                  '
@@ -1314,6 +1519,11 @@ CONTAINS
          write(*,*) 'Surface data diagnose is closed in SinglePoint case.'
 #undef SrfdataDiag
 #endif
+         IF (trim(DEF_Forcing_Interp_Method) == 'bilinear') THEN
+            DEF_Forcing_Interp_Method = 'arealweight'
+            write(*,*) '                  *****                  '
+            write(*,*) 'Bilinear interpolation is not supported in SinglePoint case.'
+         ENDIF
 #endif
 
 ! ----- Soil water and temperature Initialization ----- Namelist conflicts
@@ -1323,24 +1533,35 @@ CONTAINS
             write(*,*) 'If both DEF_USE_SoilInit and DEF_USE_WaterTableInit are .TRUE.,   '
             write(*,*) 'initial value of water table depth is read from DEF_file_SoilInit,'
             write(*,*) 'instead of DEF_file_WaterTable (which is useless in this CASE).   '
-         ENDIF 
+         ENDIF
 
 ! ----- dynamic lake run ----- Macros&Namelist conflicts and dependency management
 
 #ifndef CATCHMENT
          IF ((.not. DEF_USE_VariablySaturatedFlow) .and. DEF_USE_Dynamic_Lake) THEN
             DEF_USE_Dynamic_Lake = .false.
-            write(*,*) '                         *** Warning ***                                '
-            write(*,*) 'Dynamic Lake is closed if variably saturated flow algorithm is not used.'
+            write(*,*) '                  *****                  '
+            write(*,*) 'Warning: Dynamic Lake is closed if variably saturated flow algorithm is not used.'
          ENDIF
          IF (DEF_USE_Dynamic_Lake) THEN
-            write(*,*) '                   *** Warning ***                      '
-            write(*,*) 'Dynamic Lake is not well supported without lateral flow.'
+            write(*,*) '                  *****                  '
+            write(*,*) 'Warning: Dynamic Lake is not well supported without lateral flow.'
          ENDIF
 #else
          DEF_USE_Dynamic_Lake = .true.
-         write(*,*) '                 *** Warning ***                          '
-         write(*,*) 'Dynamic Lake is used if CATCHMENT-based lateral flow used.'
+         write(*,*) '                  *****                  '
+         write(*,*) 'Warning: Dynamic Lake is used if CATCHMENT-based lateral flow used.'
+#endif
+
+! ----- 2m WMO temperature ---- Macros&Namelist conflicts and dependency management
+
+#if !defined(GRIDBASED) || (defined  LULC_IGBP || defined LULC_USGS)
+         IF (DEF_Output_2mWMO) THEN
+            DEF_Output_2mWMO = .false.
+            write(*,*) '                  *****                  '
+            write(*,*) 'Warning: 2m WMO temperature is not well supported for IGBP and USGS'
+            write(*,*) 'DEF_Output_2mWMO will be set to false automatically.'
+         ENDIF
 #endif
 
 ! ----- [Complement IF needed] ----- Macros&Namelist conflicts and dependency management
@@ -1354,6 +1575,7 @@ CONTAINS
 
 
 #ifdef USEMPI
+      CALL mpi_bcast (DEF_Output_2mWMO                       ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_CASE_NAME                          ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_domain%edges                       ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_domain%edgen                       ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
@@ -1365,6 +1587,7 @@ CONTAINS
       CALL mpi_bcast (DEF_nx_blocks                          ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_ny_blocks                          ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_PIO_groupsize                      ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_nIO_eq_nBlock                      ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
 
       CALL mpi_bcast (DEF_simulation_time%greenwich          ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
 
@@ -1418,6 +1641,7 @@ CONTAINS
       CALL mpi_bcast (DEF_USE_PFT                            ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_USE_PC                             ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_FAST_PC                            ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_PC_CROP_SPLIT                      ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_SOLO_PFT                           ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_SUBGRID_SCHEME                     ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
 
@@ -1429,11 +1653,16 @@ CONTAINS
       CALL mpi_bcast (DEF_USE_LAIFEEDBACK                    ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_USE_IRRIGATION                     ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
 
+      CALL mpi_bcast (DEF_IRRIGATION_ALLOCATION              ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_USE_NOSTRESSNITROGEN               ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_RSTFAC                             ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+
       ! LULC related
       CALL mpi_bcast (DEF_LC_YEAR                            ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_LULCC_SCHEME                       ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
 
       CALL mpi_bcast (DEF_URBAN_type_scheme                  ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_URBAN_geom_data                    ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
       ! 05/2023, added by yuan
       CALL mpi_bcast (DEF_URBAN_ONLY                         ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_URBAN_RUN                          ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
@@ -1454,7 +1683,10 @@ CONTAINS
       CALL mpi_bcast (DEF_RSS_SCHEME                         ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
       ! 02/2024, added by Shupeng Zhang
       CALL mpi_bcast (DEF_Runoff_SCHEME                      ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_VIC_OPT                            ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_file_VIC_para                      ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_file_VIC_OPT                       ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TOPMOD_method                      ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
       ! 08/2023, added by hua yuan
       CALL mpi_bcast (DEF_SPLIT_SOILSNOW                     ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_VEG_SNOW                           ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
@@ -1472,11 +1704,14 @@ CONTAINS
       CALL mpi_bcast (DEF_USE_DiagMatrix                     ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_USE_PN                             ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_USE_FERT                           ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_FERT_SOURCE                        ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_USE_NITRIF                         ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_USE_CNSOYFIXN                      ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_USE_FIRE                           ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
 
       CALL mpi_bcast (DEF_USE_Dynamic_Lake                   ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_USE_Dynamic_Wetland                ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+
       CALL mpi_bcast (DEF_CheckEquilibrium                   ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
 
       CALL mpi_bcast (DEF_LANDONLY                           ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
@@ -1490,6 +1725,11 @@ CONTAINS
 
       CALL mpi_bcast (DEF_USE_SoilInit                       ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_file_SoilInit                      ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+
+      CALL mpi_bcast (DEF_HighResSoil                        ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_HighResVeg                         ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_PROSPECT                           ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_HighResUrban_albedo                ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
 
       CALL mpi_bcast (DEF_USE_SnowInit                       ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_file_SnowInit                      ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
@@ -1505,15 +1745,31 @@ CONTAINS
       CALL mpi_bcast (DEF_file_snowaging                     ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
 
       CALL mpi_bcast (DEF_CaMa_Namelist                      ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
-      
+
       CALL mpi_bcast (DEF_ElementNeighbour_file              ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_UnitCatchment_file                 ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_ReservoirPara_file                 ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
 
       CALL mpi_bcast (DEF_DA_obsdir                          ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_DA_TWS                             ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_DA_TWS_GRACE                       ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_DA_SM                              ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_DA_ENS_NUM                         ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_DA_ENS_SM                          ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_DA_SM_SMAP                         ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_DA_SM_FY                           ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_DA_SM_SYNOP                        ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_DA_RTM_diel                        ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_DA_RTM_rough                       ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+
+      CALL mpi_bcast (DEF_Optimize_Baseflow                  ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
 
       CALL mpi_bcast (DEF_Aerosol_Readin                     ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_Aerosol_Clim                       ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
 
       CALL mpi_bcast (DEF_USE_EstimatedRiverDepth            ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_Reservoir_Method                   ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_GRIDBASED_ROUTING_MAX_DT           ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
 
       CALL mpi_bcast (DEF_HISTORY_IN_VECTOR                  ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
 
@@ -1532,9 +1788,11 @@ CONTAINS
 
       CALL mpi_bcast (DEF_Forcing_Interp_Method              ,20  ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_USE_Forcing_Downscaling            ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_USE_Forcing_Downscaling_Simple     ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_DS_HiresTopographyDataDir          ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_DS_precipitation_adjust_scheme     ,5   ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_DS_longwave_adjust_scheme          ,5   ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_USE_ClimForcing_for_Spinup         ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
 
       CALL mpi_bcast (DEF_forcing%dataset                    ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_forcing%solarin_all_band           ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
@@ -1699,6 +1957,7 @@ CONTAINS
       CALL sync_hist_vars_one (DEF_hist_vars%rnof        , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%xwsur       , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%xwsub       , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%fldarea     , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%qintr       , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%qinfl       , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%qdrip       , set_defaults)
@@ -1706,6 +1965,7 @@ CONTAINS
       CALL sync_hist_vars_one (DEF_hist_vars%wat_inst    , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%wetwat      , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%wetwat_inst , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%wetzwt      , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%assim       , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%respc       , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%qcharge     , set_defaults)
@@ -1715,6 +1975,7 @@ CONTAINS
       CALL sync_hist_vars_one (DEF_hist_vars%scv         , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%snowdp      , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%fsno        , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%frcsat      , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%sigf        , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%green       , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%lai         , set_defaults)
@@ -1722,11 +1983,17 @@ CONTAINS
       CALL sync_hist_vars_one (DEF_hist_vars%laisha      , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%sai         , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%alb         , set_defaults)
+#ifdef HYPERSPECTRAL
+      CALL sync_hist_vars_one (DEF_hist_vars%alb_hires   , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%reflectance_out   , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%transmittance_out , set_defaults)
+#endif
       CALL sync_hist_vars_one (DEF_hist_vars%emis        , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%z0m         , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%trad        , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%rss         , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%tref        , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%t2m_wmo     , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%qref        , set_defaults)
 #ifdef URBAN_MODEL
       CALL sync_hist_vars_one (DEF_hist_vars%fsen_roof   , set_defaults)
@@ -1806,6 +2073,17 @@ CONTAINS
       CALL sync_hist_vars_one (DEF_hist_vars%hr                 , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%fpg                , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%fpi                , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%totvegc            , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%totlitc            , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%totcwdc            , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%totsomc            , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%totcolc            , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%totvegn            , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%totlitn            , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%totcwdn            , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%totsomn            , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%totcoln            , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%totsoiln_vr        , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%gpp_enftemp        , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%gpp_enfboreal      , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%gpp_dnfboreal      , set_defaults)
@@ -1834,17 +2112,58 @@ CONTAINS
       CALL sync_hist_vars_one (DEF_hist_vars%leafc_c3arcgrass   , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%leafc_c3grass      , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%leafc_c4grass      , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%lai_enftemp      , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%lai_enfboreal    , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%lai_dnfboreal    , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%lai_ebftrop      , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%lai_ebftemp      , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%lai_dbftrop      , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%lai_dbftemp      , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%lai_dbfboreal    , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%lai_ebstemp      , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%lai_dbstemp      , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%lai_dbsboreal    , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%lai_c3arcgrass   , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%lai_c3grass      , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%lai_c4grass      , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%npp_enftemp      , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%npp_enfboreal    , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%npp_dnfboreal    , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%npp_ebftrop      , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%npp_ebftemp      , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%npp_dbftrop      , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%npp_dbftemp      , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%npp_dbfboreal    , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%npp_ebstemp      , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%npp_dbstemp      , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%npp_dbsboreal    , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%npp_c3arcgrass   , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%npp_c3grass      , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%npp_c4grass      , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%npptoleafc_enftemp      , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%npptoleafc_enfboreal    , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%npptoleafc_dnfboreal    , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%npptoleafc_ebftrop      , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%npptoleafc_ebftemp      , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%npptoleafc_dbftrop      , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%npptoleafc_dbftemp      , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%npptoleafc_dbfboreal    , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%npptoleafc_ebstemp      , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%npptoleafc_dbstemp      , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%npptoleafc_dbsboreal    , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%npptoleafc_c3arcgrass   , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%npptoleafc_c3grass      , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%npptoleafc_c4grass      , set_defaults)
 #ifdef CROP
       CALL sync_hist_vars_one (DEF_hist_vars%cphase                          , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%gddmaturity                     , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%gddplant                        , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%vf                              , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%hui                             , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%cropprod1c                      , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%cropprod1c_loss                 , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%cropseedc_deficit               , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%grainc_to_cropprodc             , set_defaults)
-      CALL sync_hist_vars_one (DEF_hist_vars%grainc_to_seed                  , set_defaults)
-      CALL sync_hist_vars_one (DEF_hist_vars%hui                             , set_defaults)
-      CALL sync_hist_vars_one (DEF_hist_vars%vf                              , set_defaults)
-      CALL sync_hist_vars_one (DEF_hist_vars%gddmaturity                     , set_defaults)
-      CALL sync_hist_vars_one (DEF_hist_vars%gddplant                        , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%plantdate_rainfed_temp_corn     , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%plantdate_irrigated_temp_corn   , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%plantdate_rainfed_spwheat       , set_defaults)
@@ -1883,15 +2202,38 @@ CONTAINS
       CALL sync_hist_vars_one (DEF_hist_vars%cropprodc_rainfed_trop_soybean  , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%cropprodc_irrigated_trop_soybean, set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%cropprodc_unmanagedcrop         , set_defaults)
+
+      CALL sync_hist_vars_one (DEF_hist_vars%grainc_to_seed                  , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%fert_to_sminn                   , set_defaults)
+
+      IF(DEF_USE_FERT)THEN
+         CALL sync_hist_vars_one (DEF_hist_vars%manunitro                    , set_defaults)
+         CALL sync_hist_vars_one (DEF_hist_vars%fertnitro_corn               , set_defaults)
+         CALL sync_hist_vars_one (DEF_hist_vars%fertnitro_swheat             , set_defaults)
+         CALL sync_hist_vars_one (DEF_hist_vars%fertnitro_wwheat             , set_defaults)
+         CALL sync_hist_vars_one (DEF_hist_vars%fertnitro_soybean            , set_defaults)
+         CALL sync_hist_vars_one (DEF_hist_vars%fertnitro_cotton             , set_defaults)
+         CALL sync_hist_vars_one (DEF_hist_vars%fertnitro_rice1              , set_defaults)
+         CALL sync_hist_vars_one (DEF_hist_vars%fertnitro_rice2              , set_defaults)
+         CALL sync_hist_vars_one (DEF_hist_vars%fertnitro_sugarcane          , set_defaults)
+      ENDIF
+
       IF(DEF_USE_IRRIGATION)THEN
-         CALL sync_hist_vars_one (DEF_hist_vars%irrig_rate                   , set_defaults)
-         CALL sync_hist_vars_one (DEF_hist_vars%deficit_irrig                , set_defaults)
          CALL sync_hist_vars_one (DEF_hist_vars%sum_irrig                    , set_defaults)
+         CALL sync_hist_vars_one (DEF_hist_vars%sum_deficit_irrig            , set_defaults)
          CALL sync_hist_vars_one (DEF_hist_vars%sum_irrig_count              , set_defaults)
+         CALL sync_hist_vars_one (DEF_hist_vars%waterstorage                 , set_defaults)
+         CALL sync_hist_vars_one (DEF_hist_vars%groundwater_demand           , set_defaults)
+         CALL sync_hist_vars_one (DEF_hist_vars%groundwater_supply           , set_defaults)
+         CALL sync_hist_vars_one (DEF_hist_vars%reservoirriver_demand        , set_defaults)
+         CALL sync_hist_vars_one (DEF_hist_vars%reservoirriver_supply        , set_defaults)
       ENDIF
 #endif
       CALL sync_hist_vars_one (DEF_hist_vars%ndep_to_sminn                   , set_defaults)
+      IF(DEF_USE_NITRIF)THEN
+         CALL sync_hist_vars_one (DEF_hist_vars%CONC_O2_UNSAT                , set_defaults)
+         CALL sync_hist_vars_one (DEF_hist_vars%O2_DECOMP_DEPTH_UNSAT        , set_defaults)
+      ENDIF
       IF(DEF_USE_FIRE)THEN
          CALL sync_hist_vars_one (DEF_hist_vars%abm                          , set_defaults)
          CALL sync_hist_vars_one (DEF_hist_vars%gdp                          , set_defaults)
@@ -1937,7 +2279,7 @@ CONTAINS
       CALL sync_hist_vars_one (DEF_hist_vars%deadcrootn_xferCap              , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%t_scalar                        , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%w_scalar                        , set_defaults)
-      
+
       CALL sync_hist_vars_one (DEF_hist_vars%litr1cCap_vr                    , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%litr2cCap_vr                    , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%litr3cCap_vr                    , set_defaults)
@@ -1953,12 +2295,37 @@ CONTAINS
       CALL sync_hist_vars_one (DEF_hist_vars%soil3nCap_vr                    , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%cwdnCap_vr                      , set_defaults)
 #endif
+      IF(DEF_USE_OZONESTRESS)THEN
+         CALL sync_hist_vars_one (DEF_hist_vars%o3uptakesun                  , set_defaults)
+         CALL sync_hist_vars_one (DEF_hist_vars%o3uptakesha                  , set_defaults)
+      ENDIF
+
+#ifdef DataAssimilation
+      CALL sync_hist_vars_one (DEF_hist_vars%DA_wliq_h2osoi_5cm        , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%DA_wliq_h2osoi_5cm_a      , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%DA_t_soisno_5cm           , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%DA_t_soisno_5cm_a         , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%DA_wliq_soisno_ens        , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%DA_t_soisno_ens           , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%DA_wliq_soisno_5cm_ens_std, set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%DA_t_soisno_5cm_ens_std   , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%DA_t_brt_smap             , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%DA_t_brt_smap_a           , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%DA_t_brt_smap_ens         , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%DA_t_brt_smap_ens_std     , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%DA_t_brt_fy3d             , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%DA_t_brt_fy3d_a           , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%DA_t_brt_fy3d_ens         , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%DA_t_brt_fy3d_ens_std     , set_defaults)
+#endif
 
       CALL sync_hist_vars_one (DEF_hist_vars%t_soisno    , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%wliq_soisno , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%wice_soisno , set_defaults)
 
       CALL sync_hist_vars_one (DEF_hist_vars%h2osoi      , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%qlayer      , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%lake_deficit, set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%rstfacsun   , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%rstfacsha   , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%gssun       , set_defaults)
@@ -2026,14 +2393,25 @@ CONTAINS
       CALL sync_hist_vars_one (DEF_hist_vars%srviln      , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%srndln      , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%srniln      , set_defaults)
+#ifdef HYPERSPECTRAL
+      CALL sync_hist_vars_one (DEF_hist_vars%sol_dir_ln_hires, set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%sol_dif_ln_hires, set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%sr_dir_ln_hires , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%sr_dif_ln_hires , set_defaults)
+#endif
 
       CALL sync_hist_vars_one (DEF_hist_vars%xsubs_bsn   , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%xsubs_hru   , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%riv_height  , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%riv_veloct  , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%discharge   , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%floodarea   , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%floodfrc    , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%wdsrf_hru   , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%veloc_hru   , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%volresv     , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%qresv_in    , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%qresv_out   , set_defaults)
 
       CALL sync_hist_vars_one (DEF_hist_vars%sensors     , set_defaults)
 

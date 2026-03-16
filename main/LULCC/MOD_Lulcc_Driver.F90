@@ -13,8 +13,8 @@ MODULE MOD_Lulcc_Driver
  CONTAINS
 
 
-   SUBROUTINE LulccDriver (casename,dir_landdata,dir_restart,&
-                           idate,greenwich)
+   SUBROUTINE LulccDriver (casename, dir_landdata, dir_restart, &
+                           jdate, greenwich)
 
 !-----------------------------------------------------------------------
 !
@@ -28,6 +28,58 @@ MODULE MOD_Lulcc_Driver
 !  08/2023, Wanyi Lin: add interface for Mass&Energy conserved scheme.
 !
 !-----------------------------------------------------------------------
+!
+!                  ***** For Development *****
+!
+!  Extra processes when adding a new variable and #define LULCC:
+!
+!  1. Save a copy of new variable (if called "var", save it to "var_")
+!  with 2 steps:
+!
+!  1.1 main/LULCC/MOD_Lulcc_Vars_TimeVariables.F90's subroutine
+!  "allocate_LulccTimeVariables":
+!           allocate (var_(dimension))
+!
+!  1.2 main/LULCC/MOD_Lulcc_Vars_TimeVariables.F90's subroutine
+!  "SAVE_LulccTimeVariables":
+!           var_ = var
+!
+!  2. Reassignment for the next year
+!
+!  2.1 if used Same Type Assignment (SAT) scheme for variable recovery
+!  main/LULCC/MOD_Lulcc_Vars_TimeVariables.F90's subroutine
+!  "REST_LulccTimeVariables"
+!           var(np) = var_(np_)
+!
+!  2.2 if using Mass and Energy conservation (MEC) scheme for variable
+!  recovery
+!
+!  2.2.1 main/LULCC/MOD_Lulcc_Vars_TimeVariables.F90's subroutine
+!  "REST_LulccTimeVariables":
+!           var(np) = var_(np_)
+!
+!  2.2.2 [No need for PFT/PC scheme] Mass and Energy conserve
+!  adjustment, add after line 519 of MOD_Lulcc_MassEnergyConserve.F90.
+!
+!  o if variable should be mass conserved:
+!       var(:,np) = var(:,np) + &
+!       var(:,frnp_(k))*lccpct_np(patchclass_(frnp_(k)))/sum_lccpct_np
+!
+!  o if variable should be energy conserved, take soil temperature
+!  "t_soisno" as an example: [May neeed extra calculation]
+!       t_soisno (1:nl_soil,np) = t_soisno (1:nl_soil,np) + &
+!                t_soisno_(1:nl_soil,frnp_(k))*cvsoil_(1:nl_soil,k)* &
+!                lccpct_np(patchclass_(frnp_(k)))/wgt(1:nl_soil)
+!  where cvsoil_ is the heat capacity, wgt is the sum of
+!  cvsoil_(1:nl_soil,k)*lccpct_np(patchclass_(frnp_(k))), which need to
+!  be calculated in advance.
+!
+!  3. Deallocate the copy of new variable in
+!  MOD_Lulcc_Vars_TimeVariables.F90's subroutine
+!  "deallocate_LulccTimeVariables":
+!           deallocate (var_)
+!
+!-----------------------------------------------------------------------
 
    USE MOD_Precision
    USE MOD_SPMD_Task
@@ -35,7 +87,7 @@ MODULE MOD_Lulcc_Driver
    USE MOD_Lulcc_Vars_TimeVariables
    USE MOD_Lulcc_Initialize
    USE MOD_Vars_TimeVariables
-   USE MOD_Lulcc_TransferTrace
+   USE MOD_Lulcc_TransferTraceReadin
    USE MOD_Lulcc_MassEnergyConserve
    USE MOD_Namelist
 
@@ -46,7 +98,8 @@ MODULE MOD_Lulcc_Driver
    character(len=256), intent(in) :: dir_restart   !case restart data directory
 
    logical, intent(in)    :: greenwich   !true: greenwich time, false: local time
-   integer, intent(inout) :: idate(3)    !year, julian day, seconds of the starting time
+   integer, intent(inout) :: jdate(3)    !year, julian day, seconds of the starting time
+!-----------------------------------------------------------------------
 
       ! allocate Lulcc memory
       CALL allocate_LulccTimeInvariants
@@ -64,8 +117,8 @@ MODULE MOD_Lulcc_Driver
          print *, ">>> LULCC: initializing..."
       ENDIF
 
-      CALL LulccInitialize (casename,dir_landdata,dir_restart,&
-                            idate,greenwich)
+      CALL LulccInitialize (casename, dir_landdata, dir_restart, &
+                            jdate, greenwich)
 
 
       ! =============================================================
@@ -81,7 +134,7 @@ MODULE MOD_Lulcc_Driver
 
 
       ! =============================================================
-      ! 2. Mass and Energy conservation (MEC) scheme for variable revocery
+      ! 2. Mass and Energy conservation (MEC) scheme for variable recovery
       ! =============================================================
 
       IF (DEF_LULCC_SCHEME == 2) THEN
@@ -90,7 +143,7 @@ MODULE MOD_Lulcc_Driver
          ENDIF
          CALL allocate_LulccTransferTrace()
          CALL REST_LulccTimeVariables
-         CALL MAKE_LulccTransferTrace(idate(1))
+         CALL LulccTransferTraceReadin(jdate(1))
          CALL LulccMassEnergyConserve()
       ENDIF
 
